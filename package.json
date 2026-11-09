@@ -1,0 +1,21 @@
+{
+  "name": "gerenciador-tarefas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gerenciador de tarefas com Web e CLI usando a mesma API e o mesmo banco",
+  "main": "api.js",
+  "scripts": {
+    "start": "node api.js",
+    "test": "jest --coverage"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}
