@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerenciador de Tarefas</title>
+  <style>
+    :root {
+      --fundo: #f4f5f7;
+      --cartao: #ffffff;
+      --texto: #1f2328;
+      --texto-suave: #59636e;
+      --borda: #d0d7de;
+      --primaria: #1f6feb;
+      --primaria-hover: #1858c4;
+      --erro: #cf222e;
+      --sucesso: #1a7f37;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--fundo);
+      color: var(--texto);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 24px;
+      background: var(--cartao);
+      border-bottom: 1px solid var(--borda);
+    }
+
+    header h1 {
+      font-size: 1.2rem;
+      margin: 0;
+    }
+
+    .cabecalho-direita {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #status-api {
+      font-size: 0.85rem;
+      color: var(--texto-suave);
+    }
+
+    #status-api.ok {
+      color: var(--sucesso);
+    }
+
+    #status-api.falha {
+      color: var(--erro);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 32px auto;
+      padding: 0 16px;
+    }
+
+    .cartao {
+      background: var(--cartao);
+      border: 1px solid var(--borda);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    #tela-login {
+      max-width: 380px;
+      margin: 64px auto;
+    }
+
+    #tela-login h2 {
+      margin-top: 0;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin: 12px 0 4px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--borda);
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: var(--primaria);
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--primaria-hover);
+    }
+
+    button.secundario {
+      background: transparent;
+      color: var(--texto);
+      border: 1px solid var(--borda);
+    }
+
+    #form-login button {
+      width: 100%;
+      margin-top: 16px;
+    }
+
+    .erro {
+      color: var(--erro);
+      min-height: 1.2em;
+      margin: 8px 0 0;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Gerenciador de Tarefas</h1>
+    <div class="cabecalho-direita">
+      <span id="status-api">API: verificando...</span>
+      <button id="botao-sair" class="secundario" hidden>Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="tela-login" class="cartao">
+      <h2>Entrar</h2>
+      <form id="form-login">
+        <label for="usuario">Usuário</label>
+        <input id="usuario" name="usuario" autocomplete="username" required>
+
+        <label for="senha">Senha</label>
+        <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+
+        <p id="erro-login" class="erro" role="alert"></p>
+        <button type="submit">Entrar</button>
+      </form>
+    </section>
+
+    <section id="tela-inicial" hidden>
+      <div class="cartao">
+        <h2>Olá, <span id="nome-usuario"></span></h2>
+        <p>Você está autenticado. As funcionalidades de tarefas aparecem abaixo.</p>
+      </div>
+
+      <!-- Áreas das próximas issues: #2 formulário, #3 tabela, #4 busca, #5 CSV, #6 dashboard -->
+    </section>
+  </main>
+
+  <script>
+    const CHAVE_TOKEN = 'tarefas_token';
+    const CHAVE_USUARIO = 'tarefas_usuario';
+
+    function obterToken() {
+      return sessionStorage.getItem(CHAVE_TOKEN);
+    }
+
+    // Faz chamadas à API já com o token; reaproveitada pelas próximas issues.
+    async function apiFetch(caminho, opcoes) {
+      const config = Object.assign({}, opcoes);
+      const cabecalhos = Object.assign({
+        'Content-Type': 'application/json'
+      }, config.headers);
+
+      const token = obterToken();
+      if (token) {
+        cabecalhos.Authorization = 'Bearer ' + token;
+      }
+      config.headers = cabecalhos;
+
+      const resposta = await fetch(caminho, config);
+      if (resposta.status === 401 && token) {
+        sair();
+      }
+      return resposta;
+    }
+
+    function mostrarTelaInicial() {
+      document.getElementById('nome-usuario').textContent = sessionStorage.getItem(CHAVE_USUARIO);
+      document.getElementById('tela-login').hidden = true;
+      document.getElementById('tela-inicial').hidden = false;
+      document.getElementById('botao-sair').hidden = false;
+    }
+
+    function mostrarTelaLogin() {
+      document.getElementById('tela-inicial').hidden = true;
+      document.getElementById('botao-sair').hidden = true;
+      document.getElementById('tela-login').hidden = false;
+    }
+
+    function sair() {
+      sessionStorage.removeItem(CHAVE_TOKEN);
+      sessionStorage.removeItem(CHAVE_USUARIO);
+      mostrarTelaLogin();
+    }
+
+    async function entrar(evento) {
+      evento.preventDefault();
+      const erro = document.getElementById('erro-login');
+      erro.textContent = '';
+
+      const usuario = document.getElementById('usuario').value.trim();
+      const senha = document.getElementById('senha').value;
+
+      try {
+        const resposta = await fetch('/api/web/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            usuario,
+            senha
+          })
+        });
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+          erro.textContent = dados.erro;
+          return;
+        }
+
+        sessionStorage.setItem(CHAVE_TOKEN, dados.token);
+        sessionStorage.setItem(CHAVE_USUARIO, usuario);
+        document.getElementById('senha').value = '';
+        mostrarTelaInicial();
+      } catch (falha) {
+        erro.textContent = 'Não foi possível conectar à API.';
+      }
+    }
+
+    async function verificarApi() {
+      const status = document.getElementById('status-api');
+      try {
+        const resposta = await fetch('/api/web/health');
+        if (resposta.ok) {
+          status.textContent = 'API: online';
+          status.className = 'ok';
+        } else {
+          status.textContent = 'API: com problema';
+          status.className = 'falha';
+        }
+      } catch (falha) {
+        status.textContent = 'API: offline';
+        status.className = 'falha';
+      }
+    }
+
+    document.getElementById('form-login').addEventListener('submit', entrar);
+    document.getElementById('botao-sair').addEventListener('click', sair);
+
+    verificarApi();
+    if (obterToken()) {
+      mostrarTelaInicial();
+    }
+  </script>
+</body>
+
+</html>
