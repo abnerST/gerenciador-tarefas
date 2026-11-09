@@ -4,4 +4,4 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 EXPOSE 3000
-CMD ["node", "api.js"]
+CMD ["node", "-e", "require('./api.js').start()"]
