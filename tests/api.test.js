@@ -7,7 +7,9 @@ jest.mock('../db', () => ({
   atualizarTarefa: jest.fn(),
   inserirTarefaCli: jest.fn(),
   editarTarefaCli: jest.fn(),
-  obterMetricasDashboard: jest.fn()
+  obterMetricasDashboard: jest.fn(),
+  listarTarefas: jest.fn(),
+  excluirTarefa: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -19,7 +21,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { app, start, clienteDaRota, autenticar, validarTarefa, lerId } = require('../api');
+const { app, start, clienteDaRota, autenticar, validarTarefa, lerId, inteiroPositivo } = require('../api');
 
 let hashSenha;
 
@@ -647,5 +649,124 @@ describe('GET /api/web/dashboard (issue #6)', () => {
     expect(resposta.status).toBe(500);
     expect(resposta.body.erro).toBe('Erro interno');
     expect(logsDaApi().some((l) => l.operation === 'dashboard' && l.status === 'error' && l.level === 'ERROR')).toBe(true);
+  });
+});
+
+describe('inteiroPositivo', () => {
+  test('usa o padrão para valores ausentes, inválidos ou menores que 1', () => {
+    expect(inteiroPositivo(undefined, 5, 100)).toBe(5);
+    expect(inteiroPositivo('abc', 5, 100)).toBe(5);
+    expect(inteiroPositivo('0', 5, 100)).toBe(5);
+  });
+
+  test('limita ao máximo e aceita valores válidos', () => {
+    expect(inteiroPositivo('500', 5, 100)).toBe(100);
+    expect(inteiroPositivo('3', 5, 100)).toBe(3);
+  });
+});
+
+describe('lerId', () => {
+  test('aceita apenas inteiros positivos', () => {
+    expect(lerId('12')).toBe(12);
+    expect(lerId('abc')).toBeNull();
+    expect(lerId('1.5')).toBeNull();
+    expect(lerId('0')).toBeNull();
+  });
+});
+
+describe('GET /api/web/records', () => {
+  const TOKEN = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).get('/api/web/records');
+
+    expect(resposta.status).toBe(401);
+    expect(db.listarTarefas).not.toHaveBeenCalled();
+  });
+
+  test('lista com padrões de paginação e repassa o request_id ao banco', async () => {
+    db.listarTarefas.mockResolvedValue({ itens: [{ id: 1, titulo: 'Tarefa 1' }], total: 7 });
+
+    const resposta = await request(app).get('/api/web/records').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      itens: [{ id: 1, titulo: 'Tarefa 1' }],
+      total: 7,
+      page: 1,
+      page_size: 5,
+      total_pages: 2
+    });
+
+    const [opcoes, ctx] = db.listarTarefas.mock.calls[0];
+    expect(opcoes).toEqual({ page: 1, pageSize: 5, sort: undefined, order: undefined });
+    expect(ctx.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((linha) => linha.operation === 'list' && linha.status === 'success')).toBe(true);
+  });
+
+  test('repassa página, tamanho, ordenação e direção da query string', async () => {
+    db.listarTarefas.mockResolvedValue({ itens: [], total: 0 });
+
+    const resposta = await request(app)
+      .get('/api/web/records?page=2&page_size=500&sort=prioridade&order=desc')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.total_pages).toBe(1);
+    expect(db.listarTarefas.mock.calls[0][0]).toEqual({ page: 2, pageSize: 100, sort: 'prioridade', order: 'desc' });
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.listarTarefas.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).get('/api/web/records').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((linha) => linha.operation === 'list' && linha.level === 'ERROR')).toBe(true);
+  });
+});
+
+describe('DELETE /api/web/records/:id', () => {
+  const TOKEN = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).delete('/api/web/records/1');
+
+    expect(resposta.status).toBe(401);
+    expect(db.excluirTarefa).not.toHaveBeenCalled();
+  });
+
+  test('400 com identificador inválido', async () => {
+    const resposta = await request(app).delete('/api/web/records/abc').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(400);
+    expect(db.excluirTarefa).not.toHaveBeenCalled();
+  });
+
+  test('404 quando a tarefa não existe', async () => {
+    db.excluirTarefa.mockResolvedValue(false);
+
+    const resposta = await request(app).delete('/api/web/records/99').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(404);
+  });
+
+  test('204 ao excluir, com o mesmo request_id no banco', async () => {
+    db.excluirTarefa.mockResolvedValue(true);
+
+    const resposta = await request(app).delete('/api/web/records/3').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(204);
+    const [id, ctx] = db.excluirTarefa.mock.calls[0];
+    expect(id).toBe(3);
+    expect(ctx.request_id).toBe(resposta.headers['x-request-id']);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.excluirTarefa.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).delete('/api/web/records/3').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(500);
   });
 });

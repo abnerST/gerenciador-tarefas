@@ -270,3 +270,75 @@ describe('obterMetricasDashboard (issue #6)', () => {
     });
   });
 });
+
+describe('listarTarefas', () => {
+  test('usa ordenação padrão por id ascendente e devolve itens e total', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1, titulo: 'Tarefa 1' }] })
+      .mockResolvedValueOnce({ rows: [{ total: 7 }] });
+
+    const resultado = await db.listarTarefas({ page: 1, pageSize: 5 }, CTX);
+
+    expect(resultado).toEqual({ itens: [{ id: 1, titulo: 'Tarefa 1' }], total: 7 });
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('ORDER BY id ASC');
+    expect(params).toEqual([5, 0]);
+    expect(mockQuery.mock.calls[1][0]).toContain('COUNT(*)');
+  });
+
+  test('aplica ordenação permitida, direção decrescente e deslocamento da página', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.listarTarefas({ page: 2, pageSize: 5, sort: 'prioridade', order: 'desc' }, CTX);
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('CASE prioridade');
+    expect(sql).toContain('DESC');
+    expect(params).toEqual([5, 5]);
+  });
+
+  test('ignora coluna de ordenação não permitida', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.listarTarefas({ page: 1, pageSize: 5, sort: 'senha; DROP TABLE tarefas' }, CTX);
+
+    expect(mockQuery.mock.calls[0][0]).toContain('ORDER BY id ASC');
+  });
+
+  test('registra as duas consultas com o mesmo request_id', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.listarTarefas({ page: 1, pageSize: 5 }, CTX);
+
+    const operacoes = linhasDeLog().map((linha) => linha.operation);
+    expect(operacoes).toEqual(['select_tasks', 'count_tasks']);
+    linhasDeLog().forEach((linha) => {
+      expect(linha.request_id).toBe('req-teste-db');
+    });
+  });
+});
+
+describe('excluirTarefa', () => {
+  test('devolve true quando a tarefa existia', async () => {
+    mockQuery.mockResolvedValue({ rowCount: 1 });
+
+    const excluida = await db.excluirTarefa(3, CTX);
+
+    expect(excluida).toBe(true);
+    expect(mockQuery.mock.calls[0][1]).toEqual([3]);
+  });
+
+  test('devolve false quando a tarefa não existe', async () => {
+    mockQuery.mockResolvedValue({ rowCount: 0 });
+
+    const excluida = await db.excluirTarefa(99, CTX);
+
+    expect(excluida).toBe(false);
+  });
+});
