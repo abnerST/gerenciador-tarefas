@@ -181,6 +181,51 @@ async function obterMetricasDashboard(ctx) {
   };
 }
 
+
+// Expressões de ordenação permitidas; qualquer outro valor cai no padrão (id).
+const ORDENACOES = {
+  id: 'id',
+  titulo: 'titulo',
+  responsavel: 'responsavel',
+  prioridade: "CASE prioridade WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 ELSE 3 END",
+  status: "CASE status WHEN 'a_fazer' THEN 1 WHEN 'fazendo' THEN 2 ELSE 3 END",
+  prazo: 'prazo'
+};
+
+async function listarTarefas(opcoes, ctx) {
+  let ordenacao = ORDENACOES.id;
+  if (Object.hasOwn(ORDENACOES, opcoes.sort)) {
+    ordenacao = ORDENACOES[opcoes.sort];
+  }
+
+  let direcao = 'ASC';
+  if (opcoes.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const deslocamento = (opcoes.page - 1) * opcoes.pageSize;
+
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ORDER BY ${ordenacao} ${direcao}, id ASC
+    LIMIT $1 OFFSET $2
+  `;
+  const pagina = await executar(ctx, 'select_tasks', 'Página de tarefas consultada', sql, [opcoes.pageSize, deslocamento]);
+  const contagem = await executar(ctx, 'count_tasks', 'Total de tarefas contado', 'SELECT COUNT(*)::int AS total FROM tarefas', []);
+
+  return {
+    itens: pagina.rows,
+    total: contagem.rows[0].total
+  };
+}
+
+async function excluirTarefa(id, ctx) {
+  const sql = 'DELETE FROM tarefas WHERE id = $1';
+  const resultado = await executar(ctx, 'delete_task', 'Exclusão de tarefa executada', sql, [id]);
+  return resultado.rowCount > 0;
+}
+
 module.exports = {
   pool,
   log,
@@ -192,5 +237,7 @@ module.exports = {
   atualizarTarefa,
   inserirTarefaCli,
   editarTarefaCli,
-  obterMetricasDashboard
+  obterMetricasDashboard,
+  listarTarefas,
+  excluirTarefa
 };
