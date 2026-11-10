@@ -90,4 +90,77 @@ O indicador no canto superior da página consulta o healthcheck e mostra se a AP
 | GET | `/api/web/health` | Pública | Healthcheck da API (HTTP 200) |
 | POST | `/api/web/login` | Pública | Recebe `usuario` e `senha` e devolve `token`; credenciais inválidas retornam 401 |
 
-Os demais endpoints funcionais exigem o cabeçalho `Authorization: Bearer <token>`. Sem
+Os demais endpoints funcionais exigem o cabeçalho `Authorization: Bearer <token>`. Sem token ou com token inválido, a API responde **HTTP 401**.
+
+Exemplo pela linha de comando:
+
+```bash
+curl http://localhost:3000/api/web/health
+
+curl -X POST http://localhost:3000/api/web/login \
+  -H "Content-Type: application/json" \
+  -d '{"usuario":"admin","senha":"admin123"}'
+```
+
+## Logs
+
+Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
+
+```bash
+# Todos os logs da API (camadas api e db)
+docker compose logs api
+
+# Acompanhar em tempo real
+docker compose logs -f api
+```
+
+Para ver só as linhas de uma requisição, copie o `request_id` (também devolvido no cabeçalho `X-Request-Id` da resposta) e filtre:
+
+```bash
+# Linux / macOS / Git Bash
+docker compose logs api | grep "COLE-O-REQUEST-ID"
+```
+
+```powershell
+# Windows PowerShell
+docker compose logs api | Select-String "COLE-O-REQUEST-ID"
+```
+
+Exemplo de um login com sucesso:
+
+```json
+{"timestamp":"2026-11-09T18:00:00.000Z","level":"INFO","layer":"db","client":"web","operation":"select_user","status":"success","request_id":"3f2a...","message":"Consulta de usuário executada"}
+{"timestamp":"2026-11-09T18:00:00.050Z","level":"INFO","layer":"api","client":"web","operation":"login","status":"success","request_id":"3f2a...","message":"Login realizado"}
+```
+
+## Testes e cobertura
+
+Os testes unitários rodam dentro de um contêiner, com o banco simulado (mock), e medem a cobertura de linhas de `api.js`, `db.js` e `cli.js` (quando existir). O comando falha se a cobertura de linhas ficar abaixo de 100%.
+
+```bash
+docker compose run --rm --build tests
+```
+
+A tabela no fim da saída mostra a coluna **% Lines** de cada arquivo.
+
+## Estrutura de arquivos
+
+| Arquivo | Finalidade |
+|---|---|
+| `index.html` | Toda a interface Web |
+| `api.js` | Endpoints, autenticação e logs da camada api |
+| `db.js` | Acesso ao banco e logs da camada db |
+| `README.md` | Execução e documentação |
+| `docker-compose.yml` | Orquestra os serviços `db`, `api`, `web` e `tests` |
+| `Dockerfile` | Imagem Node.js da API e dos testes |
+| `nginx.conf` | Serve o `index.html` e repassa `/api` para a API |
+| `package.json`, `package-lock.json` | Dependências do Node.js |
+| `jest.config.js` | Configuração dos testes e da cobertura mínima de 100% |
+| `tests/` | Testes unitários |
+| `.env.example` | Modelo das variáveis de ambiente |
+| `.gitignore`, `.dockerignore` | Arquivos ignorados pelo Git e pelo Docker |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Template obrigatório das pull requests |
+
+## Histórico do repositório
+
+O primeiro commit da `main` (README vazio) foi gerado automaticamente na criação do repositório. Todas as alterações seguintes entraram por pull request, com aprovação dos outros dois integrantes e **Rebase and merge**, mantendo o histórico linear. Cada PR principal gerou uma tag SemVer e uma release.
