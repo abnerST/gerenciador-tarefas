@@ -59,6 +59,18 @@ function autenticar(req, res, next) {
   }
 }
 
+// Converte um valor da query string em inteiro positivo, usando o padrão quando inválido.
+function inteiroPositivo(valor, padrao, maximo) {
+  const numero = Number.parseInt(valor, 10);
+  if (Number.isNaN(numero) || numero < 1) {
+    return padrao;
+  }
+  if (numero > maximo) {
+    return maximo;
+  }
+  return numero;
+}
+
 // Lê o {id} da rota; devolve null quando não for um inteiro positivo.
 function lerId(texto) {
   if (!/^\d+$/.test(texto)) {
@@ -194,6 +206,36 @@ app.post('/api/web/records', autenticar, async (req, res) => {
   }
 });
 
+app.get('/api/web/records', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const opcoes = {
+    page: inteiroPositivo(req.query.page, 1, Number.MAX_SAFE_INTEGER),
+    pageSize: inteiroPositivo(req.query.page_size, 5, 100),
+    sort: req.query.sort,
+    order: req.query.order
+  };
+
+  try {
+    const resultado = await db.listarTarefas(opcoes, ctx);
+    let totalPaginas = Math.ceil(resultado.total / opcoes.pageSize);
+    if (totalPaginas < 1) {
+      totalPaginas = 1;
+    }
+
+    logApi(ctx, 'list', 'success', 'Tarefas listadas');
+    return res.status(200).json({
+      itens: resultado.itens,
+      total: resultado.total,
+      page: opcoes.page,
+      page_size: opcoes.pageSize,
+      total_pages: totalPaginas
+    });
+  } catch (erro) {
+    logApi(ctx, 'list', 'error', 'Erro ao listar tarefas', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 app.put('/api/web/records/:id', autenticar, async (req, res) => {
   const ctx = req.ctx;
   const id = lerId(req.params.id);
@@ -233,6 +275,30 @@ app.get('/api/web/dashboard', autenticar, async (req, res) => {
     return res.status(200).json(metricas);
   } catch (erro) {
     logApi(ctx, 'dashboard', 'error', 'Erro interno ao consultar dashboard', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+app.delete('/api/web/records/:id', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const id = lerId(req.params.id);
+
+  if (id === null) {
+    logApi(ctx, 'delete', 'error', 'Identificador inválido', 'WARN');
+    return res.status(400).json({ erro: 'Identificador inválido' });
+  }
+
+  try {
+    const excluida = await db.excluirTarefa(id, ctx);
+    if (!excluida) {
+      logApi(ctx, 'delete', 'error', 'Tarefa não encontrada', 'WARN');
+      return res.status(404).json({ erro: 'Tarefa não encontrada' });
+    }
+
+    logApi(ctx, 'delete', 'success', 'Tarefa excluída');
+    return res.status(204).end();
+  } catch (erro) {
+    logApi(ctx, 'delete', 'error', 'Erro ao excluir tarefa', 'ERROR');
     return res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -349,5 +415,6 @@ module.exports = {
   clienteDaRota,
   autenticar,
   validarTarefa,
-  lerId
+  lerId,
+  inteiroPositivo
 };
