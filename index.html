@@ -198,6 +198,135 @@
       color: var(--erro);
       font-weight: 600;
     }
+
+    input[type="radio"] {
+      width: auto;
+    }
+
+    .cabecalho-secao {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .cabecalho-secao h2 {
+      margin: 0;
+    }
+
+    .tabela-container {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--borda);
+      white-space: nowrap;
+    }
+
+    th button {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--texto);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    th button:hover {
+      background: none;
+      color: var(--primaria);
+    }
+
+    tbody tr {
+      cursor: pointer;
+    }
+
+    tbody tr:hover {
+      background: #f6f8fa;
+    }
+
+    tbody tr.selecionada {
+      background: #ddf4ff;
+    }
+
+    .vazio {
+      text-align: center;
+      color: var(--texto-suave);
+      padding: 24px;
+    }
+
+    .selo {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .selo.alta {
+      background: #ffebe9;
+      color: #a40e26;
+    }
+
+    .selo.media {
+      background: #fff8c5;
+      color: #7d4e00;
+    }
+
+    .selo.baixa {
+      background: #dafbe1;
+      color: #116329;
+    }
+
+    .paginacao {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    #info-pagina {
+      color: var(--texto-suave);
+      font-size: 0.9rem;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.perigo {
+      background: var(--erro);
+    }
+
+    button.perigo:hover {
+      background: #a40e26;
+    }
+
+    .mensagem {
+      min-height: 1.2em;
+      margin: 12px 0 0;
+    }
+
+    .mensagem.erro {
+      color: var(--erro);
+    }
+
+    .mensagem.sucesso {
+      color: var(--sucesso);
+    }
   </style>
 </head>
 
@@ -278,6 +407,41 @@
           <span id="mensagem-feedback-tarefa" style="color: var(--sucesso); font-weight: 600;"></span>
           <button type="button" id="btn-editar-esta-tarefa" class="secundario">Editar esta tarefa</button>
         </div>
+      </div>
+
+
+      <!-- #3 Listagem e exclusão -->
+      <div class="cartao" id="secao-tarefas">
+        <div class="cabecalho-secao">
+          <h2>Tarefas</h2>
+          <button id="botao-excluir" class="perigo" type="button" disabled>Excluir selecionada</button>
+        </div>
+
+        <div class="tabela-container">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col"><button type="button" data-campo="titulo" data-rotulo="Título">Título</button></th>
+                <th scope="col"><button type="button" data-campo="responsavel"
+                    data-rotulo="Responsável">Responsável</button></th>
+                <th scope="col"><button type="button" data-campo="prioridade"
+                    data-rotulo="Prioridade">Prioridade</button></th>
+                <th scope="col"><button type="button" data-campo="status" data-rotulo="Status">Status</button></th>
+                <th scope="col"><button type="button" data-campo="prazo" data-rotulo="Prazo">Prazo</button></th>
+              </tr>
+            </thead>
+            <tbody id="corpo-tabela"></tbody>
+          </table>
+        </div>
+
+        <div class="paginacao">
+          <button id="pagina-anterior" class="secundario" type="button">Anterior</button>
+          <span id="info-pagina">Página 1 de 1</span>
+          <button id="pagina-proxima" class="secundario" type="button">Próxima</button>
+        </div>
+
+        <p id="mensagem-tarefas" class="mensagem" role="status"></p>
       </div>
 
       <div class="cartao" id="container-dashboard">
@@ -370,7 +534,7 @@
         </div>
       </div>
 
-      <!-- Áreas das próximas issues: #3 tabela, #4 busca, #5 CSV -->
+      <!-- Áreas das próximas issues: #4 busca, #5 CSV -->
     </section>
   </main>
 
@@ -408,6 +572,7 @@
       document.getElementById('tela-inicial').hidden = false;
       document.getElementById('botao-sair').hidden = false;
       carregarDashboard();
+      carregarTarefas();
     }
 
     function mostrarTelaLogin() {
@@ -755,6 +920,238 @@
         status.className = 'falha';
       }
     }
+
+    // ===== #3 Listagem e exclusão =====
+    const TAMANHO_PAGINA = 5;
+    const ROTULOS_PRIORIDADE = {
+      baixa: 'Baixa',
+      media: 'Média',
+      alta: 'Alta'
+    };
+    const ROTULOS_STATUS = {
+      a_fazer: 'A fazer',
+      fazendo: 'Fazendo',
+      feito: 'Feito'
+    };
+
+    const estadoTabela = {
+      pagina: 1,
+      totalPaginas: 1,
+      sort: 'id',
+      order: 'asc',
+      selecionada: null
+    };
+
+    function formatarPrazo(prazo) {
+      if (!prazo) {
+        return '—';
+      }
+      const partes = prazo.split('-');
+      return partes[2] + '/' + partes[1] + '/' + partes[0];
+    }
+
+    function mostrarMensagemTarefas(texto, tipo) {
+      const mensagem = document.getElementById('mensagem-tarefas');
+      mensagem.textContent = texto;
+      mensagem.className = 'mensagem ' + tipo;
+    }
+
+    function criarCelula(texto) {
+      const celula = document.createElement('td');
+      celula.textContent = texto;
+      return celula;
+    }
+
+    function criarSeloPrioridade(prioridade) {
+      const celula = document.createElement('td');
+      const selo = document.createElement('span');
+      selo.className = 'selo ' + prioridade;
+      selo.textContent = ROTULOS_PRIORIDADE[prioridade];
+      celula.appendChild(selo);
+      return celula;
+    }
+
+    function limparSelecao() {
+      estadoTabela.selecionada = null;
+      document.getElementById('botao-excluir').disabled = true;
+    }
+
+    function selecionarTarefa(tarefa, linha) {
+      document.querySelectorAll('#corpo-tabela tr').forEach((tr) => {
+        tr.classList.remove('selecionada');
+      });
+      linha.classList.add('selecionada');
+      linha.querySelector('input').checked = true;
+      estadoTabela.selecionada = tarefa;
+      document.getElementById('botao-excluir').disabled = false;
+    }
+
+    function desenharTabela(itens) {
+      const corpo = document.getElementById('corpo-tabela');
+      corpo.replaceChildren();
+
+      if (itens.length === 0) {
+        const linha = document.createElement('tr');
+        const celula = criarCelula('Nenhuma tarefa cadastrada.');
+        celula.colSpan = 6;
+        celula.className = 'vazio';
+        linha.appendChild(celula);
+        corpo.appendChild(linha);
+        return;
+      }
+
+      itens.forEach((tarefa) => {
+        const linha = document.createElement('tr');
+
+        const celulaSelecao = document.createElement('td');
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'tarefa-selecionada';
+        radio.setAttribute('aria-label', 'Selecionar ' + tarefa.titulo);
+        celulaSelecao.appendChild(radio);
+
+        linha.appendChild(celulaSelecao);
+        linha.appendChild(criarCelula(tarefa.titulo));
+        linha.appendChild(criarCelula(tarefa.responsavel));
+        linha.appendChild(criarSeloPrioridade(tarefa.prioridade));
+        linha.appendChild(criarCelula(ROTULOS_STATUS[tarefa.status]));
+        linha.appendChild(criarCelula(formatarPrazo(tarefa.prazo)));
+
+        linha.addEventListener('click', () => {
+          selecionarTarefa(tarefa, linha);
+        });
+        corpo.appendChild(linha);
+      });
+    }
+
+    function atualizarCabecalhos() {
+      document.querySelectorAll('th button[data-campo]').forEach((botao) => {
+        let seta = '';
+        let ariaSort = 'none';
+        if (botao.dataset.campo === estadoTabela.sort) {
+          if (estadoTabela.order === 'asc') {
+            seta = ' ▲';
+            ariaSort = 'ascending';
+          } else {
+            seta = ' ▼';
+            ariaSort = 'descending';
+          }
+        }
+        botao.textContent = botao.dataset.rotulo + seta;
+        botao.parentElement.setAttribute('aria-sort', ariaSort);
+      });
+    }
+
+    function atualizarPaginacao(dados) {
+      document.getElementById('info-pagina').textContent =
+        'Página ' + dados.page + ' de ' + dados.total_pages + ' · ' + dados.total + ' tarefa(s)';
+      document.getElementById('pagina-anterior').disabled = estadoTabela.pagina <= 1;
+      document.getElementById('pagina-proxima').disabled = estadoTabela.pagina >= estadoTabela.totalPaginas;
+    }
+
+    // Carrega a página atual do banco; pode ser chamada por outras funcionalidades (ex.: após salvar no formulário).
+    async function carregarTarefas() {
+      const parametros = new URLSearchParams({
+        page: estadoTabela.pagina,
+        page_size: TAMANHO_PAGINA,
+        sort: estadoTabela.sort,
+        order: estadoTabela.order
+      });
+
+      try {
+        const resposta = await apiFetch('/api/web/records?' + parametros.toString());
+        if (resposta.status === 401) {
+          return;
+        }
+        if (!resposta.ok) {
+          mostrarMensagemTarefas('Não foi possível carregar as tarefas.', 'erro');
+          return;
+        }
+
+        const dados = await resposta.json();
+
+        // Se a página ficou vazia (ex.: após excluir o último item), volta uma página.
+        if (dados.itens.length === 0 && estadoTabela.pagina > 1) {
+          estadoTabela.pagina = estadoTabela.pagina - 1;
+          await carregarTarefas();
+          return;
+        }
+
+        estadoTabela.totalPaginas = dados.total_pages;
+        limparSelecao();
+        desenharTabela(dados.itens);
+        atualizarCabecalhos();
+        atualizarPaginacao(dados);
+      } catch (falha) {
+        mostrarMensagemTarefas('Não foi possível conectar à API.', 'erro');
+      }
+    }
+
+    function ordenarPor(campo) {
+      if (estadoTabela.sort === campo) {
+        if (estadoTabela.order === 'asc') {
+          estadoTabela.order = 'desc';
+        } else {
+          estadoTabela.order = 'asc';
+        }
+      } else {
+        estadoTabela.sort = campo;
+        estadoTabela.order = 'asc';
+      }
+      estadoTabela.pagina = 1;
+      carregarTarefas();
+    }
+
+    async function excluirSelecionada() {
+      const tarefa = estadoTabela.selecionada;
+      if (!tarefa) {
+        return;
+      }
+      if (!window.confirm('Excluir a tarefa "' + tarefa.titulo + '"?')) {
+        return;
+      }
+
+      try {
+        const resposta = await apiFetch('/api/web/records/' + tarefa.id, {
+          method: 'DELETE'
+        });
+        if (resposta.status === 401) {
+          return;
+        }
+        if (resposta.status === 204) {
+          mostrarMensagemTarefas('Tarefa excluída.', 'sucesso');
+        } else {
+          const dados = await resposta.json();
+          mostrarMensagemTarefas(dados.erro, 'erro');
+        }
+        await carregarTarefas();
+      } catch (falha) {
+        mostrarMensagemTarefas('Não foi possível conectar à API.', 'erro');
+      }
+    }
+
+    document.querySelectorAll('th button[data-campo]').forEach((botao) => {
+      botao.addEventListener('click', () => {
+        ordenarPor(botao.dataset.campo);
+      });
+    });
+
+    document.getElementById('pagina-anterior').addEventListener('click', () => {
+      if (estadoTabela.pagina > 1) {
+        estadoTabela.pagina = estadoTabela.pagina - 1;
+        carregarTarefas();
+      }
+    });
+
+    document.getElementById('pagina-proxima').addEventListener('click', () => {
+      if (estadoTabela.pagina < estadoTabela.totalPaginas) {
+        estadoTabela.pagina = estadoTabela.pagina + 1;
+        carregarTarefas();
+      }
+    });
+
+    document.getElementById('botao-excluir').addEventListener('click', excluirSelecionada);
+    // ===== fim #3 =====
 
     document.getElementById('form-login').addEventListener('submit', entrar);
     document.getElementById('botao-sair').addEventListener('click', sair);
