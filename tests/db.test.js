@@ -183,3 +183,36 @@ describe('funções de dados', () => {
     expect(resultado).toBeNull();
   });
 });
+
+describe('consultas da CLI (issue #8)', () => {
+  const DADOS = { titulo: 'T', responsavel: 'R', prioridade: 'baixa', status: 'feito', prazo: null };
+  const CTX_CLI = { request_id: 'req-cli', client: 'cli' };
+
+  test('inserirTarefaCli insere e registra log db com client cli', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: 1, ...DADOS }] });
+
+    const tarefa = await db.inserirTarefaCli(DADOS, CTX_CLI);
+
+    expect(tarefa.id).toBe(1);
+    expect(mockQuery.mock.calls[0][0]).toContain('INSERT INTO tarefas');
+    expect(mockQuery.mock.calls[0][1]).toEqual(['T', 'R', 'baixa', 'feito', null]);
+    expect(linhasDeLog()[0]).toMatchObject({ layer: 'db', client: 'cli', operation: 'insert_task', request_id: 'req-cli' });
+  });
+
+  test('editarTarefaCli atualiza e devolve a tarefa', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: 5, ...DADOS }] });
+
+    const tarefa = await db.editarTarefaCli(5, DADOS, CTX_CLI);
+
+    expect(tarefa.id).toBe(5);
+    expect(mockQuery.mock.calls[0][0]).toContain('UPDATE tarefas');
+    expect(mockQuery.mock.calls[0][1]).toEqual(['T', 'R', 'baixa', 'feito', null, 5]);
+    expect(linhasDeLog()[0]).toMatchObject({ client: 'cli', operation: 'update_task' });
+  });
+
+  test('editarTarefaCli devolve null quando a tarefa não existe', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    expect(await db.editarTarefaCli(99, DADOS, CTX_CLI)).toBeNull();
+  });
+});

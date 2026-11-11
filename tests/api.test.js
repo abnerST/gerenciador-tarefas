@@ -4,7 +4,9 @@ jest.mock('../db', () => ({
   salvarUsuarioInicial: jest.fn(),
   buscarUsuario: jest.fn(),
   criarTarefa: jest.fn(),
-  atualizarTarefa: jest.fn()
+  atualizarTarefa: jest.fn(),
+  inserirTarefaCli: jest.fn(),
+  editarTarefaCli: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -223,6 +225,101 @@ describe('rotas protegidas da CLI', () => {
 
     expect(resposta.status).toBe(404);
     expect(logsDaApi()[0]).toMatchObject({ client: 'cli', operation: 'auth', status: 'success' });
+  });
+});
+
+describe('CLI — POST /api/cli/records e PUT /api/cli/records/:id (issue #8)', () => {
+  const TAREFA = { titulo: 'Estudar Git', responsavel: 'Abner', prioridade: 'alta', status: 'a_fazer', prazo: '2026-11-20' };
+
+  function tokenValido() {
+    return `Bearer ${jwt.sign({ sub: 'admin' }, 'segredo-de-teste')}`;
+  }
+
+  test('401 sem token no cadastro e na edição', async () => {
+    expect((await request(app).post('/api/cli/records').send(TAREFA)).status).toBe(401);
+    expect((await request(app).put('/api/cli/records/1').send(TAREFA)).status).toBe(401);
+    expect(db.inserirTarefaCli).not.toHaveBeenCalled();
+    expect(db.editarTarefaCli).not.toHaveBeenCalled();
+  });
+
+  test('201 ao criar, com consulta própria da CLI e o mesmo request_id no banco', async () => {
+    db.inserirTarefaCli.mockResolvedValue({ id: 7, ...TAREFA });
+
+    const resposta = await request(app).post('/api/cli/records').set('Authorization', tokenValido()).send(TAREFA);
+
+    expect(resposta.status).toBe(201);
+    expect(resposta.body.id).toBe(7);
+    expect(db.criarTarefa).not.toHaveBeenCalled();
+    const [dados, ctx] = db.inserirTarefaCli.mock.calls[0];
+    expect(dados).toEqual(TAREFA);
+    expect(ctx).toEqual({ request_id: resposta.headers['x-request-id'], client: 'cli' });
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'create', status: 'success' });
+  });
+
+  test('400 ao criar com dados inválidos, com as mesmas mensagens da Web', async () => {
+    const resposta = await request(app).post('/api/cli/records').set('Authorization', tokenValido()).send({ prioridade: 'urgente' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros).toEqual(validarTarefa({ prioridade: 'urgente' }).erros);
+    expect(db.inserirTarefaCli).not.toHaveBeenCalled();
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'create', status: 'error', level: 'WARN' });
+  });
+
+  test('500 ao criar quando o banco falha', async () => {
+    db.inserirTarefaCli.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).post('/api/cli/records').set('Authorization', tokenValido()).send(TAREFA);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'create', level: 'ERROR' });
+  });
+
+  test('200 ao editar, com consulta própria da CLI', async () => {
+    db.editarTarefaCli.mockResolvedValue({ id: 3, ...TAREFA, status: 'feito' });
+
+    const resposta = await request(app).put('/api/cli/records/3').set('Authorization', tokenValido()).send({ ...TAREFA, status: 'feito' });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.status).toBe('feito');
+    expect(db.atualizarTarefa).not.toHaveBeenCalled();
+    const [id, dados, ctx] = db.editarTarefaCli.mock.calls[0];
+    expect(id).toBe(3);
+    expect(dados.status).toBe('feito');
+    expect(ctx.client).toBe('cli');
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'update', status: 'success' });
+  });
+
+  test('400 ao editar com id inválido', async () => {
+    const resposta = await request(app).put('/api/cli/records/abc').set('Authorization', tokenValido()).send(TAREFA);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erro).toBe('ID inválido');
+  });
+
+  test('400 ao editar com dados inválidos', async () => {
+    const resposta = await request(app).put('/api/cli/records/3').set('Authorization', tokenValido()).send({ ...TAREFA, status: 'pronto' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros.status).toBeDefined();
+    expect(db.editarTarefaCli).not.toHaveBeenCalled();
+  });
+
+  test('404 ao editar tarefa inexistente', async () => {
+    db.editarTarefaCli.mockResolvedValue(null);
+
+    const resposta = await request(app).put('/api/cli/records/99').set('Authorization', tokenValido()).send(TAREFA);
+
+    expect(resposta.status).toBe(404);
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'update', status: 'error' });
+  });
+
+  test('500 ao editar quando o banco falha', async () => {
+    db.editarTarefaCli.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).put('/api/cli/records/3').set('Authorization', tokenValido()).send(TAREFA);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'update', level: 'ERROR' });
   });
 });
 
