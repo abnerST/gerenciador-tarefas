@@ -59,6 +59,84 @@ function autenticar(req, res, next) {
   }
 }
 
+// Lê o {id} da rota; devolve null quando não for um inteiro positivo.
+function lerId(texto) {
+  if (!/^\d+$/.test(texto)) {
+    return null;
+  }
+  const id = Number.parseInt(texto, 10);
+  if (id < 1) {
+    return null;
+  }
+  return id;
+}
+
+function validarTarefa(corpo) {
+  const dadosEntrada = corpo || {};
+  const erros = {};
+  const dados = {};
+
+  if (typeof dadosEntrada.titulo !== 'string' || dadosEntrada.titulo.trim() === '') {
+    erros.titulo = 'Título é obrigatório';
+  } else if (dadosEntrada.titulo.trim().length > 120) {
+    erros.titulo = 'Título deve ter no máximo 120 caracteres';
+  } else {
+    dados.titulo = dadosEntrada.titulo.trim();
+  }
+
+  if (typeof dadosEntrada.responsavel !== 'string' || dadosEntrada.responsavel.trim() === '') {
+    erros.responsavel = 'Responsável é obrigatório';
+  } else if (dadosEntrada.responsavel.trim().length > 80) {
+    erros.responsavel = 'Responsável deve ter no máximo 80 caracteres';
+  } else {
+    dados.responsavel = dadosEntrada.responsavel.trim();
+  }
+
+  const prioridadesValidas = ['baixa', 'media', 'alta'];
+  if (!dadosEntrada.prioridade || !prioridadesValidas.includes(dadosEntrada.prioridade)) {
+    erros.prioridade = 'Prioridade deve ser baixa, media ou alta';
+  } else {
+    dados.prioridade = dadosEntrada.prioridade;
+  }
+
+  const statusValidos = ['a_fazer', 'fazendo', 'feito'];
+  if (!dadosEntrada.status || !statusValidos.includes(dadosEntrada.status)) {
+    erros.status = 'Status deve ser a_fazer, fazendo ou feito';
+  } else {
+    dados.status = dadosEntrada.status;
+  }
+
+  if (dadosEntrada.prazo === undefined || dadosEntrada.prazo === null || dadosEntrada.prazo === '') {
+    dados.prazo = null;
+  } else if (typeof dadosEntrada.prazo === 'string') {
+    const prazoStr = dadosEntrada.prazo.trim();
+    if (prazoStr === '') {
+      dados.prazo = null;
+    } else {
+      const formatoValido = /^\d{4}-\d{2}-\d{2}$/.test(prazoStr);
+      if (!formatoValido) {
+        erros.prazo = 'Prazo deve estar no formato YYYY-MM-DD';
+      } else {
+        const [ano, mes, dia] = prazoStr.split('-').map(Number);
+        const data = new Date(ano, mes - 1, dia);
+        if (
+          data.getFullYear() !== ano ||
+          data.getMonth() !== mes - 1 ||
+          data.getDate() !== dia
+        ) {
+          erros.prazo = 'Prazo deve ser uma data válida';
+        } else {
+          dados.prazo = prazoStr;
+        }
+      }
+    }
+  } else {
+    erros.prazo = 'Prazo deve estar no formato YYYY-MM-DD';
+  }
+
+  return { dados, erros };
+}
+
 app.get('/api/web/health', (req, res) => {
   logApi(req.ctx, 'health', 'success', 'Healthcheck web respondido');
   res.status(200).json({ status: 'ok' });
@@ -93,6 +171,54 @@ app.post('/api/web/login', async (req, res) => {
     return res.status(200).json({ token });
   } catch (erro) {
     logApi(ctx, 'login', 'error', 'Erro interno no login', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+app.post('/api/web/records', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const { dados, erros } = validarTarefa(req.body);
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'create', 'error', 'Dados inválidos para cadastro de tarefa', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefa = await db.criarTarefa(dados, ctx);
+    logApi(ctx, 'create', 'success', 'Tarefa criada com sucesso');
+    return res.status(201).json(tarefa);
+  } catch (erro) {
+    logApi(ctx, 'create', 'error', 'Erro interno ao criar tarefa', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+app.put('/api/web/records/:id', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const id = lerId(req.params.id);
+  if (!id) {
+    logApi(ctx, 'update', 'error', 'ID inválido para atualização', 'WARN');
+    return res.status(400).json({ erro: 'ID inválido' });
+  }
+
+  const { dados, erros } = validarTarefa(req.body);
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'update', 'error', 'Dados inválidos para atualização de tarefa', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefa = await db.atualizarTarefa(id, dados, ctx);
+    if (!tarefa) {
+      logApi(ctx, 'update', 'error', 'Tarefa não encontrada para atualização', 'WARN');
+      return res.status(404).json({ erro: 'Tarefa não encontrada' });
+    }
+
+    logApi(ctx, 'update', 'success', 'Tarefa atualizada com sucesso');
+    return res.status(200).json(tarefa);
+  } catch (erro) {
+    logApi(ctx, 'update', 'error', 'Erro interno ao atualizar tarefa', 'ERROR');
     return res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -153,4 +279,12 @@ async function start() {
   return servidor;
 }
 
-module.exports = { app, start, logApi, clienteDaRota, autenticar };
+module.exports = {
+  app,
+  start,
+  logApi,
+  clienteDaRota,
+  autenticar,
+  validarTarefa,
+  lerId
+};
