@@ -159,6 +159,89 @@ curl -i http://localhost:3000/api/cli/records
 
 Os logs dessas operações saem com `"client":"cli"`. No pedido de token, a API e o banco registram o mesmo `request_id`.
 
+## Cadastro e edição de tarefas na Web (issue #2)
+
+Permite cadastrar novas tarefas e atualizar tarefas existentes diretamente pela interface Web, com validação de dados tanto no navegador quanto na API REST, persistência em PostgreSQL e registro de logs correlacionados.
+
+### Como cadastrar e editar pela tela
+
+1. Acesse http://localhost:8080 e faça login com as credenciais administrativas.
+2. Na tela inicial, preencha o formulário **Cadastrar Tarefa** com os campos obrigatórios e opcionais.
+3. Clique em **Cadastrar tarefa**. Caso haja campos obrigatórios vazios ou formatos inválidos, mensagens de erro serão apresentadas abaixo de cada campo.
+4. Após o salvamento com sucesso, a interface exibe a mensagem `Tarefa #<id> salva` e disponibiliza o botão **Editar esta tarefa**.
+5. Ao clicar em **Editar esta tarefa** (ou quando uma tarefa for carregada para edição):
+   - Os campos do formulário são preenchidos com os dados atuais da tarefa;
+   - O botão principal muda para **Salvar alterações** (enviando a requisição para `PUT /api/web/records/{id}`);
+   - O botão **Cancelar edição** fica visível, permitindo limpar os campos e retornar ao modo de cadastro a qualquer momento.
+
+### Regras de validação
+
+| Campo | Obrigatório | Regra |
+|---|---|---|
+| `titulo` | sim | texto não vazio, até 120 caracteres |
+| `responsavel` | sim | texto não vazio, até 80 caracteres |
+| `prioridade` | sim | `baixa`, `media` ou `alta` |
+| `status` | sim | `a_fazer`, `fazendo` ou `feito` |
+| `prazo` | não | data válida no formato `YYYY-MM-DD`; vazio vira `null` |
+
+### Endpoints da issue #2
+
+| Método | Rota | Autenticação | Códigos de resposta | Descrição |
+|---|---|---|---|---|
+| POST | `/api/web/records` | Bearer Token | 201, 400, 401, 500 | Cadastra uma nova tarefa |
+| PUT | `/api/web/records/{id}` | Bearer Token | 200, 400, 401, 404, 500 | Atualiza uma tarefa existente pelo `{id}` |
+
+- **HTTP 201 / 200**: sucesso na criação ou atualização, retornando o objeto da tarefa persistida.
+- **HTTP 400**: id inválido ou falha de validação dos campos, retornando `{ erros: { campo: "mensagem" } }`.
+- **HTTP 401**: ausência de token ou token inválido/expirado.
+- **HTTP 404**: tarefa com o id informado não existe no banco.
+- **HTTP 500**: erro interno ou falha na camada de banco de dados.
+
+### Exemplo de uso via linha de comando
+
+Substitua `<TOKEN>` pelo token JWT obtido no endpoint de login:
+
+```bash
+# 1. Cadastrar uma nova tarefa
+curl -X POST http://localhost:3000/api/web/records \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Implementar formulário web",
+    "responsavel": "Italo",
+    "prioridade": "alta",
+    "status": "a_fazer",
+    "prazo": "2026-11-20"
+  }'
+
+# 2. Atualizar a tarefa cadastrada (exemplo com id 1)
+curl -X PUT http://localhost:3000/api/web/records/1 \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "titulo": "Implementar formulário web e testes",
+    "responsavel": "Italo",
+    "prioridade": "media",
+    "status": "fazendo",
+    "prazo": "2026-11-25"
+  }'
+```
+
+### Operações de log geradas
+
+Tanto na criação quanto na atualização, a requisição passa pela validação do token e gera eventos correlacionados com o mesmo `request_id`:
+
+- **Criação (`POST`)**: gera operação `create` na camada `api` e `insert_task` na camada `db`.
+- **Edição (`PUT`)**: gera operação `update` na camada `api` e `update_task` na camada `db`.
+
+Exemplo de logs correlacionados no cadastro:
+
+```json
+{"timestamp":"2026-11-11T12:00:00.000Z","level":"INFO","layer":"api","client":"web","operation":"auth","status":"success","request_id":"c4a1...","message":"Token validado"}
+{"timestamp":"2026-11-11T12:00:00.010Z","level":"INFO","layer":"db","client":"web","operation":"insert_task","status":"success","request_id":"c4a1...","message":"Tarefa cadastrada"}
+{"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"web","operation":"create","status":"success","request_id":"c4a1...","message":"Tarefa criada com sucesso"}
+```
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
