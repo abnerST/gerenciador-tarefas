@@ -223,6 +223,20 @@ app.put('/api/web/records/:id', autenticar, async (req, res) => {
   }
 });
 
+// ---------- Dashboard (issue #6) ----------
+
+app.get('/api/web/dashboard', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  try {
+    const metricas = await db.obterMetricasDashboard(ctx);
+    logApi(ctx, 'dashboard', 'success', 'Métricas do dashboard consultadas');
+    return res.status(200).json(metricas);
+  } catch (erro) {
+    logApi(ctx, 'dashboard', 'error', 'Erro interno ao consultar dashboard', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 // ---------- CLI (issue #7) ----------
 
 app.get('/api/cli/health', (req, res) => {
