@@ -414,7 +414,10 @@
       <div class="cartao" id="secao-tarefas">
         <div class="cabecalho-secao">
           <h2>Tarefas</h2>
-          <button id="botao-excluir" class="perigo" type="button" disabled>Excluir selecionada</button>
+          <div style="display: flex; gap: 8px;">
+            <button id="botao-editar" class="secundario" type="button" disabled>Editar selecionada</button>
+            <button id="botao-excluir" class="perigo" type="button" disabled>Excluir selecionada</button>
+          </div>
         </div>
 
         <div class="tabela-container">
@@ -974,6 +977,7 @@
     function limparSelecao() {
       estadoTabela.selecionada = null;
       document.getElementById('botao-excluir').disabled = true;
+      document.getElementById('botao-editar').disabled = true;
     }
 
     function selecionarTarefa(tarefa, linha) {
@@ -984,6 +988,7 @@
       linha.querySelector('input').checked = true;
       estadoTabela.selecionada = tarefa;
       document.getElementById('botao-excluir').disabled = false;
+      document.getElementById('botao-editar').disabled = false;
     }
 
     function desenharTabela(itens) {
@@ -1151,6 +1156,15 @@
     });
 
     document.getElementById('botao-excluir').addEventListener('click', excluirSelecionada);
+
+    // Leva a tarefa selecionada para o formulário de edição da #2.
+    document.getElementById('botao-editar').addEventListener('click', () => {
+      if (!estadoTabela.selecionada) {
+        return;
+      }
+      editarTarefa(estadoTabela.selecionada);
+      document.getElementById('container-formulario-tarefa').scrollIntoView({ behavior: 'smooth' });
+    });
     // ===== fim #3 =====
 
     document.getElementById('form-login').addEventListener('submit', entrar);
