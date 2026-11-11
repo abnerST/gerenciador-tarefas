@@ -85,11 +85,49 @@ async function buscarUsuario(usuario, ctx) {
   return resultado.rows[0];
 }
 
+async function criarTarefa(dados, ctx) {
+  const sql = `
+    INSERT INTO tarefas (titulo, responsavel, prioridade, status, prazo)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+  `;
+  const params = [
+    dados.titulo,
+    dados.responsavel,
+    dados.prioridade,
+    dados.status,
+    dados.prazo
+  ];
+  const resultado = await executar(ctx, 'insert_task', 'Tarefa cadastrada', sql, params);
+  return resultado.rows[0];
+}
+
+async function atualizarTarefa(id, dados, ctx) {
+  const sql = `
+    UPDATE tarefas
+    SET titulo = $1, responsavel = $2, prioridade = $3, status = $4, prazo = $5
+    WHERE id = $6
+    RETURNING id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+  `;
+  const params = [
+    dados.titulo,
+    dados.responsavel,
+    dados.prioridade,
+    dados.status,
+    dados.prazo,
+    id
+  ];
+  const resultado = await executar(ctx, 'update_task', 'Tarefa atualizada', sql, params);
+  return resultado.rows[0] || null;
+}
+
 module.exports = {
   pool,
   log,
   executar,
   criarTabelas,
   salvarUsuarioInicial,
-  buscarUsuario
+  buscarUsuario,
+  criarTarefa,
+  atualizarTarefa
 };
