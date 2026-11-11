@@ -138,6 +138,92 @@ describe('autenticar', () => {
   });
 });
 
+describe('GET /api/cli/health', () => {
+  test('responde 200 sem autenticação, com log de client cli', async () => {
+    const resposta = await request(app).get('/api/cli/health');
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({ status: 'ok' });
+    expect(logsDaApi()[0]).toMatchObject({ layer: 'api', client: 'cli', operation: 'health', status: 'success' });
+  });
+});
+
+describe('POST /api/cli/token', () => {
+  test('401 sem usuário ou senha', async () => {
+    const resposta = await request(app).post('/api/cli/token').send({ usuario: 'admin' });
+
+    expect(resposta.status).toBe(401);
+    expect(logsDaApi()[0]).toMatchObject({ client: 'cli', operation: 'token', status: 'error', level: 'WARN' });
+  });
+
+  test('401 quando o usuário não existe', async () => {
+    db.buscarUsuario.mockResolvedValue(undefined);
+
+    const resposta = await request(app).post('/api/cli/token').send({ usuario: 'outro', senha: 'x' });
+
+    expect(resposta.status).toBe(401);
+  });
+
+  test('401 com senha errada', async () => {
+    db.buscarUsuario.mockResolvedValue({ id: 1, usuario: 'admin', senha_hash: hashSenha });
+
+    const resposta = await request(app).post('/api/cli/token').send({ usuario: 'admin', senha: 'errada' });
+
+    expect(resposta.status).toBe(401);
+    expect(resposta.body.erro).toBe('Usuário ou senha inválidos');
+  });
+
+  test('200 com token válido, client cli e o mesmo request_id repassado ao banco', async () => {
+    db.buscarUsuario.mockResolvedValue({ id: 1, usuario: 'admin', senha_hash: hashSenha });
+
+    const resposta = await request(app).post('/api/cli/token').send({ usuario: 'admin', senha: 'senha-de-teste' });
+
+    expect(resposta.status).toBe(200);
+    expect(jwt.verify(resposta.body.token, 'segredo-de-teste').sub).toBe('admin');
+
+    const ctxBanco = db.buscarUsuario.mock.calls[0][1];
+    expect(ctxBanco).toEqual({ request_id: resposta.headers['x-request-id'], client: 'cli' });
+    expect(logsDaApi().pop()).toMatchObject({ client: 'cli', operation: 'token', status: 'success' });
+
+    const textoDosLogs = JSON.stringify(logsDaApi());
+    expect(textoDosLogs).not.toContain('senha-de-teste');
+    expect(textoDosLogs).not.toContain(resposta.body.token);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.buscarUsuario.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).post('/api/cli/token').send({ usuario: 'admin', senha: 'x' });
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi()[0]).toMatchObject({ level: 'ERROR', status: 'error', operation: 'token' });
+  });
+});
+
+describe('rotas protegidas da CLI', () => {
+  test('401 sem token em qualquer rota /api/cli que não seja health ou token', async () => {
+    const resposta = await request(app).get('/api/cli/records');
+
+    expect(resposta.status).toBe(401);
+    expect(logsDaApi()[0]).toMatchObject({ client: 'cli', operation: 'auth', status: 'error' });
+  });
+
+  test('401 com token inválido', async () => {
+    const resposta = await request(app).get('/api/cli/records').set('Authorization', 'Bearer invalido');
+
+    expect(resposta.status).toBe(401);
+  });
+
+  test('com token válido passa pela autenticação', async () => {
+    const token = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+    const resposta = await request(app).get('/api/cli/rota-inexistente').set('Authorization', `Bearer ${token}`);
+
+    expect(resposta.status).toBe(404);
+    expect(logsDaApi()[0]).toMatchObject({ client: 'cli', operation: 'auth', status: 'success' });
+  });
+});
+
 describe('start', () => {
   test('cria tabelas, salva o usuário inicial com hash e sobe o servidor', async () => {
     const servidor = await start();
