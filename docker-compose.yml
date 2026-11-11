@@ -35,6 +35,17 @@ services:
     depends_on:
       - api
 
+  cli:
+    build: .
+    entrypoint: ["node", "cli.js"]
+    environment:
+      API_URL: http://api:3000
+      TAREFAS_TOKEN: ${TAREFAS_TOKEN:-}
+    depends_on:
+      - api
+    profiles:
+      - cli
+
   tests:
     build: .
     command: npm test
