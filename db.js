@@ -146,6 +146,41 @@ async function editarTarefaCli(id, dados, ctx) {
   return resultado.rows[0] || null;
 }
 
+// ---------- Dashboard (issue #6): consultas agregadas de métricas ----------
+
+async function obterMetricasDashboard(ctx) {
+  const sql = `
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'a_fazer') AS status_a_fazer,
+      COUNT(*) FILTER (WHERE status = 'fazendo') AS status_fazendo,
+      COUNT(*) FILTER (WHERE status = 'feito') AS status_feito,
+      COUNT(*) FILTER (WHERE prioridade = 'baixa') AS prioridade_baixa,
+      COUNT(*) FILTER (WHERE prioridade = 'media') AS prioridade_media,
+      COUNT(*) FILTER (WHERE prioridade = 'alta') AS prioridade_alta,
+      COUNT(*) FILTER (WHERE prazo IS NOT NULL AND prazo < CURRENT_DATE AND status != 'feito') AS prazos_atrasadas,
+      COUNT(*) FILTER (WHERE prazo IS NOT NULL AND (prazo >= CURRENT_DATE OR status = 'feito')) AS prazos_no_prazo
+    FROM tarefas
+  `;
+  const resultado = await executar(ctx, 'dashboard_metrics', 'Métricas do dashboard consultadas', sql, []);
+  const linha = resultado.rows[0] || {};
+  return {
+    status: {
+      a_fazer: Number(linha.status_a_fazer) || 0,
+      fazendo: Number(linha.status_fazendo) || 0,
+      feito: Number(linha.status_feito) || 0
+    },
+    prioridade: {
+      baixa: Number(linha.prioridade_baixa) || 0,
+      media: Number(linha.prioridade_media) || 0,
+      alta: Number(linha.prioridade_alta) || 0
+    },
+    prazos: {
+      atrasadas: Number(linha.prazos_atrasadas) || 0,
+      no_prazo: Number(linha.prazos_no_prazo) || 0
+    }
+  };
+}
+
 module.exports = {
   pool,
   log,
@@ -156,5 +191,6 @@ module.exports = {
   criarTarefa,
   atualizarTarefa,
   inserirTarefaCli,
-  editarTarefaCli
+  editarTarefaCli,
+  obterMetricasDashboard
 };
