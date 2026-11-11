@@ -8,6 +8,17 @@ Comandos:
   ajuda                                  Mostra esta ajuda
   health                                 Verifica se a API está no ar (público)
   token --usuario <u> --senha <s>        Obtém um token de acesso (Bearer)
+  criar --titulo <t> --responsavel <r> --prioridade <p> --status <s> [--prazo AAAA-MM-DD]
+                                         Cadastra uma tarefa (protegido)
+  editar --id <n> --titulo <t> --responsavel <r> --prioridade <p> --status <s> [--prazo AAAA-MM-DD]
+                                         Edita uma tarefa, enviando todos os campos (protegido)
+
+Campos da tarefa (mesmas regras da Web):
+  --titulo        obrigatório, até 120 caracteres
+  --responsavel   obrigatório, até 80 caracteres
+  --prioridade    obrigatório: baixa, media ou alta
+  --status        obrigatório: a_fazer, fazendo ou feito
+  --prazo         opcional, no formato AAAA-MM-DD
 
 Autenticação:
   Os comandos protegidos enviam "Authorization: Bearer <token>".
@@ -82,6 +93,10 @@ function mensagemDeErro(resultado) {
   if (resultado.status === 401) {
     return 'Acesso negado (HTTP 401): token ausente ou inválido, ou credenciais incorretas.';
   }
+  if (resultado.dados.erros) {
+    const linhas = Object.entries(resultado.dados.erros).map(([campo, msg]) => `  --${campo}: ${msg}`);
+    return `Dados inválidos (HTTP ${resultado.status}):\n${linhas.join('\n')}`;
+  }
   const detalhe = resultado.dados.erro || 'erro inesperado';
   return `Erro HTTP ${resultado.status}: ${detalhe}`;
 }
@@ -115,9 +130,62 @@ async function comandoToken({ opcoes, env, saida }) {
   return 0;
 }
 
+const CAMPOS_TAREFA = ['titulo', 'responsavel', 'prioridade', 'status', 'prazo'];
+
+// Monta o corpo só com os campos informados; a validação fica na API, igual à Web.
+function montarTarefa(opcoes) {
+  const tarefa = {};
+  for (const campo of CAMPOS_TAREFA) {
+    if (typeof opcoes[campo] === 'string') {
+      tarefa[campo] = opcoes[campo];
+    }
+  }
+  return tarefa;
+}
+
+function formatarTarefa(tarefa) {
+  const prazo = tarefa.prazo || 'sem prazo';
+  return `#${tarefa.id} | ${tarefa.titulo} | ${tarefa.responsavel} | ${tarefa.prioridade} | ${tarefa.status} | ${prazo}`;
+}
+
+async function comandoCriar({ opcoes, env, saida, token }) {
+  const resultado = await chamarApi('POST', '/api/cli/records', {
+    env,
+    token,
+    corpo: montarTarefa(opcoes)
+  });
+  if (resultado.status !== 201) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+  saida.info(`Tarefa criada: ${formatarTarefa(resultado.dados)}`);
+  return 0;
+}
+
+async function comandoEditar({ opcoes, env, saida, token }) {
+  if (typeof opcoes.id !== 'string') {
+    saida.erro('Informe o identificador com --id. Exemplo: editar --id 3 --titulo ... --status feito');
+    return 1;
+  }
+
+  const resultado = await chamarApi('PUT', `/api/cli/records/${encodeURIComponent(opcoes.id)}`, {
+    env,
+    token,
+    corpo: montarTarefa(opcoes)
+  });
+  if (resultado.status !== 200) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+  saida.info(`Tarefa atualizada: ${formatarTarefa(resultado.dados)}`);
+  return 0;
+}
+
 const COMANDOS = {
   health: comandoHealth,
-  token: comandoToken
+  token: comandoToken,
+  criar: comandoCriar,
+  editar: comandoEditar
 };
 
 async function main(argv, { env = process.env, saida = { info: console.log, erro: console.error } } = {}) {
@@ -146,4 +214,4 @@ async function main(argv, { env = process.env, saida = { info: console.log, erro
 // Executa só quando chamado como programa (node cli.js ...), não quando importado pelos testes.
 if (require.main === module) main(process.argv.slice(2)).then((codigo) => { process.exitCode = codigo; });
 
-module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, AJUDA };
+module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA };
