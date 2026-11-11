@@ -102,6 +102,63 @@ curl -X POST http://localhost:3000/api/web/login \
   -d '{"usuario":"admin","senha":"admin123"}'
 ```
 
+## CLI (issue #7)
+
+A CLI fica no arquivo único `cli.js` e roda em um contêiner próprio pelo Docker Compose. Ela **não acessa o banco**: toda operação passa pela API, nos endpoints `/api/cli/...`, separados dos endpoints da Web.
+
+Com a aplicação no ar (`docker compose up --build`), em outro terminal:
+
+```bash
+# Ajuda com todos os subcomandos
+docker compose run --rm cli ajuda
+
+# Healthcheck da API (público)
+docker compose run --rm cli health
+
+# Obter um token com o usuário inicial do .env
+docker compose run --rm cli token --usuario admin --senha admin123
+```
+
+O comando `token` imprime só o token (JWT, válido por 8 horas). Os comandos protegidos enviam o cabeçalho `Authorization: Bearer <token>`. O token pode ser informado de duas formas:
+
+```bash
+# 1. Pela variável de ambiente TAREFAS_TOKEN (vale para todos os comandos)
+docker compose run --rm -e TAREFAS_TOKEN=<token> cli <comando>
+
+# 2. Pela opção --token em um comando específico
+docker compose run --rm cli <comando> --token <token>
+```
+
+No Linux, macOS ou Git Bash, dá para guardar o token direto na variável:
+
+```bash
+export TAREFAS_TOKEN=$(docker compose run --rm cli token --usuario admin --senha admin123)
+```
+
+No Windows PowerShell:
+
+```powershell
+$env:TAREFAS_TOKEN = docker compose run --rm cli token --usuario admin --senha admin123
+```
+
+O serviço `cli` repassa `TAREFAS_TOKEN` do terminal para o contêiner. Os comandos de cadastro, listagem, busca, exportação e indicadores entram nas issues #8 a #12.
+
+### Endpoints da issue #7
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/cli/health` | Pública | Healthcheck da API para a CLI (HTTP 200) |
+| POST | `/api/cli/token` | Pública | Recebe `usuario` e `senha` e devolve `token`; credenciais inválidas retornam 401 |
+
+Todas as outras rotas em `/api/cli/...` exigem `Authorization: Bearer <token>`. Sem token ou com token inválido, a API responde **HTTP 401**:
+
+```bash
+curl -i http://localhost:3000/api/cli/records
+# HTTP/1.1 401 Unauthorized
+```
+
+Os logs dessas operações saem com `"client":"cli"`. No pedido de token, a API e o banco registram o mesmo `request_id`.
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
@@ -135,7 +192,7 @@ Exemplo de um login com sucesso:
 
 ## Testes e cobertura
 
-Os testes unitários rodam dentro de um contêiner, com o banco simulado (mock), e medem a cobertura de linhas de `api.js`, `db.js` e `cli.js` (quando existir). O comando falha se a cobertura de linhas ficar abaixo de 100%.
+Os testes unitários rodam dentro de um contêiner, com o banco simulado (mock), e medem a cobertura de linhas de `api.js`, `db.js` e `cli.js`. O comando falha se a cobertura de linhas ficar abaixo de 100%.
 
 ```bash
 docker compose run --rm --build tests
@@ -150,8 +207,9 @@ A tabela no fim da saída mostra a coluna **% Lines** de cada arquivo.
 | `index.html` | Toda a interface Web |
 | `api.js` | Endpoints, autenticação e logs da camada api |
 | `db.js` | Acesso ao banco e logs da camada db |
+| `cli.js` | Toda a CLI (subcomandos e chamadas à API) |
 | `README.md` | Execução e documentação |
-| `docker-compose.yml` | Orquestra os serviços `db`, `api`, `web` e `tests` |
+| `docker-compose.yml` | Orquestra os serviços `db`, `api`, `web`, `cli` e `tests` |
 | `Dockerfile` | Imagem Node.js da API e dos testes |
 | `nginx.conf` | Serve o `index.html` e repassa `/api` para a API |
 | `package.json`, `package-lock.json` | Dependências do Node.js |
