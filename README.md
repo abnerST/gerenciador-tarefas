@@ -372,6 +372,73 @@ Exemplo de logs correlacionados no dashboard:
 {"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"web","operation":"dashboard","status":"success","request_id":"d5b2...","message":"Métricas do dashboard consultadas"}
 ```
 
+## Listagem e exclusão de tarefas na Web (issue #3)
+
+Depois do login, a tela inicial mostra a tabela de tarefas, carregada do banco sempre que a página é aberta.
+
+- **Colunas visíveis**: título, responsável, prioridade, status e prazo.
+- **Paginação**: 5 tarefas por página, com os botões **Anterior** e **Próxima** e o total de tarefas.
+- **Ordenação**: clique no nome de uma coluna para ordenar; clique de novo para inverter. A seta (▲ ou ▼) mostra a direção. Prioridade segue a ordem baixa → média → alta, e status, a fazer → fazendo → feito.
+- **Seleção, edição e exclusão**: clique numa linha para selecioná-la. **Editar selecionada** leva a tarefa para o formulário de edição (issue #2); **Excluir selecionada** pede confirmação, exclui a tarefa do banco e atualiza a tabela.
+- Depois de cadastrar ou editar pelo formulário, a tabela é atualizada automaticamente.
+
+### Endpoints da issue #3
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/web/records` | Bearer token | Lista as tarefas com paginação e ordenação |
+| DELETE | `/api/web/records/{id}` | Bearer token | Exclui a tarefa pelo identificador |
+
+Parâmetros de `GET /api/web/records` (query string, todos opcionais):
+
+| Parâmetro | Padrão | Valores |
+|---|---|---|
+| `page` | `1` | inteiro a partir de 1 |
+| `page_size` | `5` | inteiro de 1 a 100 |
+| `sort` | `id` | `id`, `titulo`, `responsavel`, `prioridade`, `status`, `prazo` |
+| `order` | `asc` | `asc` ou `desc` |
+
+Valores inválidos são substituídos pelo padrão. A resposta traz `itens`, `total`, `page`, `page_size` e `total_pages`.
+
+Respostas de `DELETE /api/web/records/{id}`: **204** quando exclui, **404** quando a tarefa não existe, **400** quando o identificador não é um inteiro positivo e **401** sem token válido.
+
+### Preparar dados de exemplo (opcional)
+
+As tarefas podem ser cadastradas pelo formulário da Web. Para popular a tabela de uma vez, com o Compose rodando:
+
+```bash
+docker compose exec db psql -U tarefas -d tarefas -c "INSERT INTO tarefas (titulo, responsavel, prioridade, status, prazo) VALUES ('Configurar Docker','Alexandre','alta','feito','2026-11-09'), ('Criar tela de login','Alexandre','media','feito','2026-11-10'), ('Cadastro de tarefas','Italo','alta','fazendo','2026-11-10'), ('Estrutura da CLI','Abner','alta','fazendo','2026-11-10'), ('Listagem web','Alexandre','media','a_fazer','2026-11-11'), ('Dashboard','Italo','baixa','a_fazer','2026-11-11'), ('Gravar video','Abner','baixa','a_fazer',NULL);"
+```
+
+O usuário e o nome do banco (`-U tarefas -d tarefas`) seguem `POSTGRES_USER` e `POSTGRES_DB` do `.env`.
+
+### Exemplos pela linha de comando
+
+```bash
+# Obter o token
+TOKEN=$(curl -s -X POST http://localhost:3000/api/web/login \
+  -H "Content-Type: application/json" \
+  -d '{"usuario":"admin","senha":"admin123"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+# Página 1, ordenada por prioridade decrescente
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/web/records?page=1&page_size=5&sort=prioridade&order=desc"
+
+# Excluir a tarefa 7
+curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/web/records/7
+```
+
+```powershell
+# Windows PowerShell
+$token = (Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/web/login -ContentType "application/json" -Body '{"usuario":"admin","senha":"admin123"}').token
+Invoke-RestMethod -Uri "http://localhost:3000/api/web/records?page=1&sort=prioridade&order=desc" -Headers @{ Authorization = "Bearer $token" }
+Invoke-RestMethod -Method Delete -Uri http://localhost:3000/api/web/records/7 -Headers @{ Authorization = "Bearer $token" }
+```
+
+### Logs da issue #3
+
+Cada listagem gera, com o mesmo `request_id`: `auth` (api), `select_tasks` e `count_tasks` (db) e `list` (api). Cada exclusão gera `auth` (api), `delete_task` (db) e `delete` (api). Falhas, como tarefa inexistente ou identificador inválido, aparecem com `level` `WARN` e `status` `error`.
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
