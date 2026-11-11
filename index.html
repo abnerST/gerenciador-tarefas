@@ -168,7 +168,56 @@
         <p>Você está autenticado. As funcionalidades de tarefas aparecem abaixo.</p>
       </div>
 
-      <!-- Áreas das próximas issues: #2 formulário, #3 tabela, #4 busca, #5 CSV, #6 dashboard -->
+      <div class="cartao" id="container-formulario-tarefa">
+        <h3 id="titulo-formulario">Cadastrar Tarefa</h3>
+        <form id="form-tarefa" novalidate>
+          <input type="hidden" id="tarefa-id" name="id">
+
+          <label for="tarefa-titulo">Título *</label>
+          <input id="tarefa-titulo" name="titulo" required>
+          <span id="erro-tarefa-titulo" class="erro" style="display:block; font-size:0.875rem;"></span>
+
+          <label for="tarefa-responsavel">Responsável *</label>
+          <input id="tarefa-responsavel" name="responsavel" required>
+          <span id="erro-tarefa-responsavel" class="erro" style="display:block; font-size:0.875rem;"></span>
+
+          <label for="tarefa-prioridade">Prioridade *</label>
+          <select id="tarefa-prioridade" name="prioridade" required>
+            <option value="">Selecione uma prioridade</option>
+            <option value="baixa">Baixa</option>
+            <option value="media">Média</option>
+            <option value="alta">Alta</option>
+          </select>
+          <span id="erro-tarefa-prioridade" class="erro" style="display:block; font-size:0.875rem;"></span>
+
+          <label for="tarefa-status">Status *</label>
+          <select id="tarefa-status" name="status" required>
+            <option value="">Selecione um status</option>
+            <option value="a_fazer">A Fazer</option>
+            <option value="fazendo">Fazendo</option>
+            <option value="feito">Feito</option>
+          </select>
+          <span id="erro-tarefa-status" class="erro" style="display:block; font-size:0.875rem;"></span>
+
+          <label for="tarefa-prazo">Prazo</label>
+          <input type="date" id="tarefa-prazo" name="prazo">
+          <span id="erro-tarefa-prazo" class="erro" style="display:block; font-size:0.875rem;"></span>
+
+          <p id="erro-tarefa-geral" class="erro" role="alert"></p>
+
+          <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
+            <button type="submit" id="btn-salvar-tarefa">Cadastrar tarefa</button>
+            <button type="button" id="btn-cancelar-edicao" class="secundario" hidden>Cancelar edição</button>
+          </div>
+        </form>
+
+        <div id="feedback-tarefa" style="margin-top: 16px; display: flex; align-items: center; gap: 12px;" hidden>
+          <span id="mensagem-feedback-tarefa" style="color: var(--sucesso); font-weight: 600;"></span>
+          <button type="button" id="btn-editar-esta-tarefa" class="secundario">Editar esta tarefa</button>
+        </div>
+      </div>
+
+      <!-- Áreas das próximas issues: #3 tabela, #4 busca, #5 CSV, #6 dashboard -->
     </section>
   </main>
 
@@ -216,7 +265,179 @@
     function sair() {
       sessionStorage.removeItem(CHAVE_TOKEN);
       sessionStorage.removeItem(CHAVE_USUARIO);
+      cancelarEdicao();
+      document.getElementById('feedback-tarefa').hidden = true;
+      ultimaTarefaSalva = null;
       mostrarTelaLogin();
+    }
+
+    let ultimaTarefaSalva = null;
+
+    function limparErrosTarefa() {
+      document.getElementById('erro-tarefa-titulo').textContent = '';
+      document.getElementById('erro-tarefa-responsavel').textContent = '';
+      document.getElementById('erro-tarefa-prioridade').textContent = '';
+      document.getElementById('erro-tarefa-status').textContent = '';
+      document.getElementById('erro-tarefa-prazo').textContent = '';
+      document.getElementById('erro-tarefa-geral').textContent = '';
+    }
+
+    function exibirErrosTarefa(erros) {
+      if (!erros) return;
+      if (erros.titulo) {
+        document.getElementById('erro-tarefa-titulo').textContent = erros.titulo;
+      }
+      if (erros.responsavel) {
+        document.getElementById('erro-tarefa-responsavel').textContent = erros.responsavel;
+      }
+      if (erros.prioridade) {
+        document.getElementById('erro-tarefa-prioridade').textContent = erros.prioridade;
+      }
+      if (erros.status) {
+        document.getElementById('erro-tarefa-status').textContent = erros.status;
+      }
+      if (erros.prazo) {
+        document.getElementById('erro-tarefa-prazo').textContent = erros.prazo;
+      }
+    }
+
+    function validarCamposTarefa(titulo, responsavel, prioridade, status, prazo) {
+      const erros = {};
+
+      if (!titulo || titulo.trim() === '') {
+        erros.titulo = 'Título é obrigatório';
+      } else if (titulo.trim().length > 120) {
+        erros.titulo = 'Título deve ter no máximo 120 caracteres';
+      }
+
+      if (!responsavel || responsavel.trim() === '') {
+        erros.responsavel = 'Responsável é obrigatório';
+      } else if (responsavel.trim().length > 80) {
+        erros.responsavel = 'Responsável deve ter no máximo 80 caracteres';
+      }
+
+      const prioridadesValidas = ['baixa', 'media', 'alta'];
+      if (!prioridade || !prioridadesValidas.includes(prioridade)) {
+        erros.prioridade = 'Prioridade deve ser baixa, media ou alta';
+      }
+
+      const statusValidos = ['a_fazer', 'fazendo', 'feito'];
+      if (!status || !statusValidos.includes(status)) {
+        erros.status = 'Status deve ser a_fazer, fazendo ou feito';
+      }
+
+      if (prazo && prazo.trim() !== '') {
+        const prazoStr = prazo.trim();
+        const formatoValido = /^\d{4}-\d{2}-\d{2}$/.test(prazoStr);
+        if (!formatoValido) {
+          erros.prazo = 'Prazo deve estar no formato YYYY-MM-DD';
+        } else {
+          const partes = prazoStr.split('-').map(Number);
+          const data = new Date(partes[0], partes[1] - 1, partes[2]);
+          if (
+            data.getFullYear() !== partes[0] ||
+            data.getMonth() !== partes[1] - 1 ||
+            data.getDate() !== partes[2]
+          ) {
+            erros.prazo = 'Prazo deve ser uma data válida';
+          }
+        }
+      }
+
+      return erros;
+    }
+
+    function editarTarefa(tarefa) {
+      if (!tarefa) return;
+      limparErrosTarefa();
+      document.getElementById('feedback-tarefa').hidden = true;
+
+      document.getElementById('tarefa-id').value = tarefa.id;
+      document.getElementById('tarefa-titulo').value = tarefa.titulo || '';
+      document.getElementById('tarefa-responsavel').value = tarefa.responsavel || '';
+      document.getElementById('tarefa-prioridade').value = tarefa.prioridade || '';
+      document.getElementById('tarefa-status').value = tarefa.status || '';
+      document.getElementById('tarefa-prazo').value = tarefa.prazo || '';
+
+      document.getElementById('titulo-formulario').textContent = 'Editar Tarefa';
+      document.getElementById('btn-salvar-tarefa').textContent = 'Salvar alterações';
+      document.getElementById('btn-cancelar-edicao').hidden = false;
+    }
+
+    window.editarTarefa = editarTarefa;
+
+    function cancelarEdicao() {
+      document.getElementById('form-tarefa').reset();
+      document.getElementById('tarefa-id').value = '';
+      document.getElementById('titulo-formulario').textContent = 'Cadastrar Tarefa';
+      document.getElementById('btn-salvar-tarefa').textContent = 'Cadastrar tarefa';
+      document.getElementById('btn-cancelar-edicao').hidden = true;
+      limparErrosTarefa();
+    }
+
+    async function salvarTarefa(evento) {
+      evento.preventDefault();
+      limparErrosTarefa();
+      document.getElementById('feedback-tarefa').hidden = true;
+
+      const id = document.getElementById('tarefa-id').value;
+      const titulo = document.getElementById('tarefa-titulo').value;
+      const responsavel = document.getElementById('tarefa-responsavel').value;
+      const prioridade = document.getElementById('tarefa-prioridade').value;
+      const status = document.getElementById('tarefa-status').value;
+      const prazo = document.getElementById('tarefa-prazo').value;
+
+      const erros = validarCamposTarefa(titulo, responsavel, prioridade, status, prazo);
+      if (Object.keys(erros).length > 0) {
+        exibirErrosTarefa(erros);
+        return;
+      }
+
+      const corpo = {
+        titulo: titulo.trim(),
+        responsavel: responsavel.trim(),
+        prioridade,
+        status,
+        prazo: prazo && prazo.trim() !== '' ? prazo.trim() : null
+      };
+
+      const url = id ? `/api/web/records/${encodeURIComponent(id)}` : '/api/web/records';
+      const metodo = id ? 'PUT' : 'POST';
+
+      try {
+        const resposta = await apiFetch(url, {
+          method: metodo,
+          body: JSON.stringify(corpo)
+        });
+
+        const dados = await resposta.json();
+
+        if (resposta.status === 400) {
+          if (dados.erros) {
+            exibirErrosTarefa(dados.erros);
+          } else if (dados.erro) {
+            document.getElementById('erro-tarefa-geral').textContent = dados.erro;
+          }
+          return;
+        }
+
+        if (!resposta.ok) {
+          document.getElementById('erro-tarefa-geral').textContent = dados.erro || 'Falha ao processar requisição.';
+          return;
+        }
+
+        ultimaTarefaSalva = dados;
+        cancelarEdicao();
+
+        document.getElementById('mensagem-feedback-tarefa').textContent = `Tarefa #${dados.id} salva`;
+        document.getElementById('feedback-tarefa').hidden = false;
+
+        if (typeof carregarTarefas === 'function') {
+          carregarTarefas();
+        }
+      } catch (falha) {
+        document.getElementById('erro-tarefa-geral').textContent = 'Não foi possível conectar à API.';
+      }
     }
 
     async function entrar(evento) {
@@ -273,6 +494,13 @@
 
     document.getElementById('form-login').addEventListener('submit', entrar);
     document.getElementById('botao-sair').addEventListener('click', sair);
+    document.getElementById('form-tarefa').addEventListener('submit', salvarTarefa);
+    document.getElementById('btn-cancelar-edicao').addEventListener('click', cancelarEdicao);
+    document.getElementById('btn-editar-esta-tarefa').addEventListener('click', () => {
+      if (ultimaTarefaSalva) {
+        editarTarefa(ultimaTarefaSalva);
+      }
+    });
 
     verificarApi();
     if (obterToken()) {
