@@ -242,6 +242,56 @@ Exemplo de logs correlacionados no cadastro:
 {"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"web","operation":"create","status":"success","request_id":"c4a1...","message":"Tarefa criada com sucesso"}
 ```
 
+## Cadastro e edição de tarefas pela CLI (issue #8)
+
+A CLI cadastra e edita tarefas com os **mesmos campos e as mesmas validações da Web** (a API usa a mesma função `validarTarefa`). Os comandos usam endpoints próprios da CLI, com consultas próprias no `db.js`, e exigem token. Uma tarefa criada pela CLI aparece na Web e vice-versa, porque as duas usam o mesmo banco.
+
+Com o token na variável `TAREFAS_TOKEN` (veja a seção da CLI acima):
+
+```bash
+# Cadastrar (titulo, responsavel, prioridade e status são obrigatórios; prazo é opcional)
+docker compose run --rm cli criar --titulo "Estudar Git" --responsavel "Abner" --prioridade alta --status a_fazer --prazo 2026-11-20
+# Tarefa criada: #1 | Estudar Git | Abner | alta | a_fazer | 2026-11-20
+
+# Editar a tarefa 1 (envia todos os campos, como o formulário da Web)
+docker compose run --rm cli editar --id 1 --titulo "Estudar Git" --responsavel "Abner" --prioridade alta --status feito --prazo 2026-11-20
+# Tarefa atualizada: #1 | Estudar Git | Abner | alta | feito | 2026-11-20
+```
+
+Os comandos são iguais no Bash e no PowerShell.
+
+Se algum campo estiver inválido, a CLI mostra o erro de cada campo, com as mesmas mensagens da Web:
+
+```text
+Dados inválidos (HTTP 400):
+  --prioridade: Prioridade deve ser baixa, media ou alta
+```
+
+| Opção | Regra |
+|---|---|
+| `--titulo` | Obrigatório, até 120 caracteres |
+| `--responsavel` | Obrigatório, até 80 caracteres |
+| `--prioridade` | Obrigatório: `baixa`, `media` ou `alta` |
+| `--status` | Obrigatório: `a_fazer`, `fazendo` ou `feito` |
+| `--prazo` | Opcional, no formato `AAAA-MM-DD` |
+| `--id` | Obrigatório no `editar`: identificador da tarefa |
+
+### Endpoints da issue #8
+
+| Método | Rota | Autenticação | Respostas |
+|---|---|---|---|
+| POST | `/api/cli/records` | Bearer token | 201 criada, 400 dados inválidos, 401 sem token, 500 erro interno |
+| PUT | `/api/cli/records/{id}` | Bearer token | 200 atualizada, 400 id ou dados inválidos, 401 sem token, 404 não encontrada, 500 erro interno |
+
+### Logs gerados
+
+Cada comando gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no banco:
+
+| Comando | Camada api | Camada db |
+|---|---|---|
+| `criar` | `auth` e `create` | `insert_task` |
+| `editar` | `auth` e `update` | `update_task` |
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
