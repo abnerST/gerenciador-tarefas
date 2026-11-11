@@ -1,4 +1,4 @@
-const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, AJUDA } = require('../cli');
+const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA } = require('../cli');
 
 function respostaFalsa(status, corpo) {
   let texto = '';
@@ -187,5 +187,87 @@ describe('main', () => {
     expect(espiaLog).toHaveBeenCalledWith(AJUDA);
 
     espiaLog.mockRestore();
+  });
+});
+
+describe('cadastro e edição pela CLI (issue #8)', () => {
+  const ARGS = ['--titulo', 'Estudar Git', '--responsavel', 'Abner', '--prioridade', 'alta', '--status', 'a_fazer'];
+  const TAREFA = { id: 7, titulo: 'Estudar Git', responsavel: 'Abner', prioridade: 'alta', status: 'a_fazer', prazo: null };
+
+  test('montarTarefa envia só os campos informados', () => {
+    expect(montarTarefa({ titulo: 'T', status: 'feito', token: 'x', verbose: true })).toEqual({ titulo: 'T', status: 'feito' });
+  });
+
+  test('formatarTarefa mostra todos os campos e trata prazo vazio', () => {
+    expect(formatarTarefa(TAREFA)).toBe('#7 | Estudar Git | Abner | alta | a_fazer | sem prazo');
+    expect(formatarTarefa({ ...TAREFA, prazo: '2026-11-20' })).toContain('| 2026-11-20');
+  });
+
+  test('mensagemDeErro lista os erros de validação por campo', () => {
+    const texto = mensagemDeErro({ status: 400, dados: { erros: { titulo: 'Título é obrigatório' } } });
+    expect(texto).toContain('HTTP 400');
+    expect(texto).toContain('--titulo: Título é obrigatório');
+  });
+
+  test('criar envia POST /api/cli/records com Bearer do TAREFAS_TOKEN', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(201, TAREFA));
+    const saida = saidaFalsa();
+
+    expect(await main(['criar', ...ARGS, '--prazo', '2026-11-20'], { env: { ...ENV, TAREFAS_TOKEN: 'tk-env' }, saida })).toBe(0);
+
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records');
+    expect(opcoes.method).toBe('POST');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk-env');
+    expect(JSON.parse(opcoes.body)).toEqual({
+      titulo: 'Estudar Git', responsavel: 'Abner', prioridade: 'alta', status: 'a_fazer', prazo: '2026-11-20'
+    });
+    expect(saida.info.mock.calls[0][0]).toContain('Tarefa criada: #7');
+  });
+
+  test('criar mostra os erros de validação da API', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(400, { erros: { prioridade: 'Prioridade deve ser baixa, media ou alta' } }));
+    const saida = saidaFalsa();
+
+    expect(await main(['criar', '--titulo', 'x', '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('--prioridade: Prioridade deve ser baixa, media ou alta');
+  });
+
+  test('criar sem token mostra o 401', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(401, { erro: 'Token não informado' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['criar', ...ARGS], { env: ENV, saida })).toBe(1);
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(saida.erro.mock.calls[0][0]).toContain('HTTP 401');
+  });
+
+  test('editar exige --id', async () => {
+    const saida = saidaFalsa();
+
+    expect(await main(['editar', ...ARGS], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('--id');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('editar envia PUT /api/cli/records/{id} com --token', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, { ...TAREFA, status: 'feito' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['editar', '--id', '7', ...ARGS, '--token', 'tk-opcao'], { env: ENV, saida })).toBe(0);
+
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records/7');
+    expect(opcoes.method).toBe('PUT');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk-opcao');
+    expect(saida.info.mock.calls[0][0]).toContain('Tarefa atualizada: #7');
+  });
+
+  test('editar tarefa inexistente mostra o 404', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(404, { erro: 'Tarefa não encontrada' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['editar', '--id', '99', ...ARGS, '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro).toHaveBeenCalledWith('Erro HTTP 404: Tarefa não encontrada');
   });
 });
