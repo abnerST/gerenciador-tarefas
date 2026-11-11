@@ -96,4 +96,90 @@ describe('funções de dados', () => {
     expect(usuario.usuario).toBe('admin');
     expect(mockQuery.mock.calls[0][1]).toEqual(['admin']);
   });
+
+  test('criarTarefa envia os 5 parâmetros e devolve rows[0]', async () => {
+    const tarefaCriada = {
+      id: 1,
+      titulo: 'Tarefa 1',
+      responsavel: 'Italo',
+      prioridade: 'alta',
+      status: 'a_fazer',
+      prazo: '2026-11-20'
+    };
+    mockQuery.mockResolvedValue({ rows: [tarefaCriada] });
+
+    const dados = {
+      titulo: 'Tarefa 1',
+      responsavel: 'Italo',
+      prioridade: 'alta',
+      status: 'a_fazer',
+      prazo: '2026-11-20'
+    };
+
+    const resultado = await db.criarTarefa(dados, CTX);
+
+    expect(resultado).toEqual(tarefaCriada);
+    const sql = mockQuery.mock.calls[0][0];
+    expect(sql).toContain('INSERT INTO tarefas');
+    expect(sql).toContain("TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo");
+    expect(mockQuery.mock.calls[0][1]).toEqual([
+      dados.titulo,
+      dados.responsavel,
+      dados.prioridade,
+      dados.status,
+      dados.prazo
+    ]);
+  });
+
+  test('atualizarTarefa devolve a tarefa quando existe', async () => {
+    const tarefaAtualizada = {
+      id: 1,
+      titulo: 'Tarefa Atualizada',
+      responsavel: 'Italo',
+      prioridade: 'media',
+      status: 'fazendo',
+      prazo: '2026-11-25'
+    };
+    mockQuery.mockResolvedValue({ rows: [tarefaAtualizada] });
+
+    const dados = {
+      titulo: 'Tarefa Atualizada',
+      responsavel: 'Italo',
+      prioridade: 'media',
+      status: 'fazendo',
+      prazo: '2026-11-25'
+    };
+
+    const resultado = await db.atualizarTarefa(1, dados, CTX);
+
+    expect(resultado).toEqual(tarefaAtualizada);
+    const sql = mockQuery.mock.calls[0][0];
+    expect(sql).toContain('UPDATE tarefas');
+    expect(sql).toContain('SET');
+    expect(sql).toContain('WHERE id = $6');
+    expect(mockQuery.mock.calls[0][1]).toEqual([
+      dados.titulo,
+      dados.responsavel,
+      dados.prioridade,
+      dados.status,
+      dados.prazo,
+      1
+    ]);
+  });
+
+  test('atualizarTarefa devolve null quando não existe', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const dados = {
+      titulo: 'Inexistente',
+      responsavel: 'Italo',
+      prioridade: 'baixa',
+      status: 'feito',
+      prazo: null
+    };
+
+    const resultado = await db.atualizarTarefa(999, dados, CTX);
+
+    expect(resultado).toBeNull();
+  });
 });

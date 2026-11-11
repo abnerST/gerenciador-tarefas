@@ -2,7 +2,9 @@ jest.mock('../db', () => ({
   log: jest.fn(),
   criarTabelas: jest.fn(),
   salvarUsuarioInicial: jest.fn(),
-  buscarUsuario: jest.fn()
+  buscarUsuario: jest.fn(),
+  criarTarefa: jest.fn(),
+  atualizarTarefa: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -14,7 +16,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { app, start, clienteDaRota, autenticar } = require('../api');
+const { app, start, clienteDaRota, autenticar, validarTarefa, lerId } = require('../api');
 
 let hashSenha;
 
@@ -243,5 +245,264 @@ describe('start', () => {
     expect(logsDaApi().some((linha) => linha.operation === 'startup')).toBe(true);
 
     await new Promise((resolve) => servidor.close(resolve));
+  });
+});
+
+const TOKEN = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+describe('lerId', () => {
+  test('converte string de inteiro positivo em número', () => {
+    expect(lerId('1')).toBe(1);
+    expect(lerId('42')).toBe(42);
+  });
+
+  test('retorna null para valores não numéricos ou não inteiros positivos', () => {
+    expect(lerId('abc')).toBeNull();
+    expect(lerId('0')).toBeNull();
+    expect(lerId('-1')).toBeNull();
+    expect(lerId('1.5')).toBeNull();
+    expect(lerId('')).toBeNull();
+  });
+});
+
+describe('validarTarefa', () => {
+  test('dados válidos com prazo preenchido', () => {
+    const { dados, erros } = validarTarefa({
+      titulo: ' Minha Tarefa ',
+      responsavel: ' Responsavel ',
+      prioridade: 'alta',
+      status: 'a_fazer',
+      prazo: '2026-11-20'
+    });
+    expect(erros).toEqual({});
+    expect(dados).toEqual({
+      titulo: 'Minha Tarefa',
+      responsavel: 'Responsavel',
+      prioridade: 'alta',
+      status: 'a_fazer',
+      prazo: '2026-11-20'
+    });
+  });
+
+  test('prazo vazio ou ausente vira null', () => {
+    const r1 = validarTarefa({
+      titulo: 'T',
+      responsavel: 'R',
+      prioridade: 'baixa',
+      status: 'feito',
+      prazo: ''
+    });
+    expect(r1.erros).toEqual({});
+    expect(r1.dados.prazo).toBeNull();
+
+    const r2 = validarTarefa({
+      titulo: 'T',
+      responsavel: 'R',
+      prioridade: 'baixa',
+      status: 'feito',
+      prazo: '   '
+    });
+    expect(r2.erros).toEqual({});
+    expect(r2.dados.prazo).toBeNull();
+
+    const r3 = validarTarefa({
+      titulo: 'T',
+      responsavel: 'R',
+      prioridade: 'baixa',
+      status: 'feito'
+    });
+    expect(r3.erros).toEqual({});
+    expect(r3.dados.prazo).toBeNull();
+  });
+
+  test('cada campo obrigatório ausente gera erro', () => {
+    const { erros } = validarTarefa({});
+    expect(erros.titulo).toBe('Título é obrigatório');
+    expect(erros.responsavel).toBe('Responsável é obrigatório');
+    expect(erros.prioridade).toBe('Prioridade deve ser baixa, media ou alta');
+    expect(erros.status).toBe('Status deve ser a_fazer, fazendo ou feito');
+
+    const resNulo = validarTarefa(null);
+    expect(resNulo.erros.titulo).toBe('Título é obrigatório');
+  });
+
+  test('título vazio ou acima de 120 caracteres', () => {
+    const rVazio = validarTarefa({ titulo: '   ' });
+    expect(rVazio.erros.titulo).toBe('Título é obrigatório');
+
+    const rLongo = validarTarefa({ titulo: 'a'.repeat(121) });
+    expect(rLongo.erros.titulo).toBe('Título deve ter no máximo 120 caracteres');
+  });
+
+  test('responsável vazio ou acima de 80 caracteres', () => {
+    const rVazio = validarTarefa({ responsavel: '   ' });
+    expect(rVazio.erros.responsavel).toBe('Responsável é obrigatório');
+
+    const rLongo = validarTarefa({ responsavel: 'b'.repeat(81) });
+    expect(rLongo.erros.responsavel).toBe('Responsável deve ter no máximo 80 caracteres');
+  });
+
+  test('prioridade inválida', () => {
+    const { erros } = validarTarefa({ prioridade: 'urgente' });
+    expect(erros.prioridade).toBe('Prioridade deve ser baixa, media ou alta');
+  });
+
+  test('status inválido', () => {
+    const { erros } = validarTarefa({ status: 'cancelado' });
+    expect(erros.status).toBe('Status deve ser a_fazer, fazendo ou feito');
+  });
+
+  test('prazo com formato inválido, data inválida ou tipo não string', () => {
+    const rFormato = validarTarefa({ prazo: '20-11-2026' });
+    expect(rFormato.erros.prazo).toBe('Prazo deve estar no formato YYYY-MM-DD');
+
+    const rDataInvalida = validarTarefa({ prazo: '2026-02-31' });
+    expect(rDataInvalida.erros.prazo).toBe('Prazo deve ser uma data válida');
+
+    const rTipo = validarTarefa({ prazo: 12345 });
+    expect(rTipo.erros.prazo).toBe('Prazo deve estar no formato YYYY-MM-DD');
+  });
+});
+
+describe('POST /api/web/records', () => {
+  const dadosValidos = {
+    titulo: 'Nova Tarefa',
+    responsavel: 'Italo',
+    prioridade: 'alta',
+    status: 'a_fazer',
+    prazo: '2026-11-20'
+  };
+
+  test('401 sem token', async () => {
+    const resposta = await request(app)
+      .post('/api/web/records')
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(401);
+  });
+
+  test('400 com dados inválidos', async () => {
+    const resposta = await request(app)
+      .post('/api/web/records')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros).toBeDefined();
+    expect(resposta.body.erros.titulo).toBeDefined();
+    expect(logsDaApi().some((l) => l.operation === 'create' && l.status === 'error' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('201 com dados válidos e mesmo request_id repassado ao banco', async () => {
+    const tarefaCriada = { id: 1, ...dadosValidos };
+    db.criarTarefa.mockResolvedValue(tarefaCriada);
+
+    const resposta = await request(app)
+      .post('/api/web/records')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(201);
+    expect(resposta.body).toEqual(tarefaCriada);
+
+    const ctxBanco = db.criarTarefa.mock.calls[0][1];
+    expect(ctxBanco.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((l) => l.operation === 'create' && l.status === 'success')).toBe(true);
+  });
+
+  test('500 com falha do banco', async () => {
+    db.criarTarefa.mockRejectedValue(new Error('erro no banco'));
+
+    const resposta = await request(app)
+      .post('/api/web/records')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(500);
+    expect(resposta.body.erro).toBe('Erro interno');
+    expect(logsDaApi().some((l) => l.operation === 'create' && l.status === 'error' && l.level === 'ERROR')).toBe(true);
+  });
+});
+
+describe('PUT /api/web/records/:id', () => {
+  const dadosValidos = {
+    titulo: 'Tarefa Alterada',
+    responsavel: 'Italo',
+    prioridade: 'media',
+    status: 'fazendo',
+    prazo: '2026-11-25'
+  };
+
+  test('401 sem token', async () => {
+    const resposta = await request(app)
+      .put('/api/web/records/1')
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(401);
+  });
+
+  test('400 com id inválido', async () => {
+    const resposta = await request(app)
+      .put('/api/web/records/invalido')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erro).toBe('ID inválido');
+    expect(logsDaApi().some((l) => l.operation === 'update' && l.status === 'error' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('400 com dados inválidos', async () => {
+    const resposta = await request(app)
+      .put('/api/web/records/1')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ titulo: '' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros).toBeDefined();
+    expect(logsDaApi().some((l) => l.operation === 'update' && l.status === 'error' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('404 com tarefa inexistente', async () => {
+    db.atualizarTarefa.mockResolvedValue(null);
+
+    const resposta = await request(app)
+      .put('/api/web/records/999')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(404);
+    expect(resposta.body.erro).toBe('Tarefa não encontrada');
+    expect(logsDaApi().some((l) => l.operation === 'update' && l.status === 'error' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('200 com sucesso e mesmo request_id repassado ao banco', async () => {
+    const tarefaAtualizada = { id: 1, ...dadosValidos };
+    db.atualizarTarefa.mockResolvedValue(tarefaAtualizada);
+
+    const resposta = await request(app)
+      .put('/api/web/records/1')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual(tarefaAtualizada);
+
+    const ctxBanco = db.atualizarTarefa.mock.calls[0][2];
+    expect(ctxBanco.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((l) => l.operation === 'update' && l.status === 'success')).toBe(true);
+  });
+
+  test('500 com falha do banco', async () => {
+    db.atualizarTarefa.mockRejectedValue(new Error('falha db'));
+
+    const resposta = await request(app)
+      .put('/api/web/records/1')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send(dadosValidos);
+
+    expect(resposta.status).toBe(500);
+    expect(resposta.body.erro).toBe('Erro interno');
+    expect(logsDaApi().some((l) => l.operation === 'update' && l.status === 'error' && l.level === 'ERROR')).toBe(true);
   });
 });
