@@ -266,6 +266,55 @@ app.post('/api/cli/token', async (req, res) => {
 // Todo o restante de /api/cli exige Bearer token (healthcheck e token ficam públicos acima).
 app.use('/api/cli', autenticar);
 
+// Cadastro e edição pela CLI (issue #8): mesmas validações da Web, endpoints e consultas próprios.
+app.post('/api/cli/records', async (req, res) => {
+  const ctx = req.ctx;
+  const { dados, erros } = validarTarefa(req.body);
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'create', 'error', 'Dados inválidos para cadastro de tarefa pela CLI', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefa = await db.inserirTarefaCli(dados, ctx);
+    logApi(ctx, 'create', 'success', 'Tarefa criada pela CLI');
+    return res.status(201).json(tarefa);
+  } catch (erro) {
+    logApi(ctx, 'create', 'error', 'Erro interno ao criar tarefa pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+app.put('/api/cli/records/:id', async (req, res) => {
+  const ctx = req.ctx;
+  const id = lerId(req.params.id);
+  if (!id) {
+    logApi(ctx, 'update', 'error', 'ID inválido para atualização pela CLI', 'WARN');
+    return res.status(400).json({ erro: 'ID inválido' });
+  }
+
+  const { dados, erros } = validarTarefa(req.body);
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'update', 'error', 'Dados inválidos para atualização de tarefa pela CLI', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefa = await db.editarTarefaCli(id, dados, ctx);
+    if (!tarefa) {
+      logApi(ctx, 'update', 'error', 'Tarefa não encontrada para atualização pela CLI', 'WARN');
+      return res.status(404).json({ erro: 'Tarefa não encontrada' });
+    }
+
+    logApi(ctx, 'update', 'success', 'Tarefa atualizada pela CLI');
+    return res.status(200).json(tarefa);
+  } catch (erro) {
+    logApi(ctx, 'update', 'error', 'Erro interno ao atualizar tarefa pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 async function start() {
   const ctx = { request_id: 'startup', client: 'web' };
   await db.criarTabelas(ctx);
