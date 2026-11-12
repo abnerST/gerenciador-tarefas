@@ -254,6 +254,63 @@ async function listarTarefas(opcoes, ctx) {
   };
 }
 
+// Busca avançada (issue #4): monta o WHERE só com os filtros informados, sempre com parâmetros ($1, $2...).
+function montarFiltrosBusca(filtros) {
+  const condicoes = [];
+  const params = [];
+
+  if (filtros.status) {
+    params.push(filtros.status);
+    condicoes.push(`status = $${params.length}`);
+  }
+  if (filtros.prioridade) {
+    params.push(filtros.prioridade);
+    condicoes.push(`prioridade = $${params.length}`);
+  }
+  if (filtros.responsavel) {
+    params.push(`%${filtros.responsavel}%`);
+    condicoes.push(`responsavel ILIKE $${params.length}`);
+  }
+
+  let where = '';
+  if (condicoes.length > 0) {
+    where = 'WHERE ' + condicoes.join(' AND ');
+  }
+  return { where, params };
+}
+
+async function buscarTarefas(filtros, opcoes, ctx) {
+  let ordenacao = ORDENACOES.id;
+  if (Object.hasOwn(ORDENACOES, opcoes.sort)) {
+    ordenacao = ORDENACOES[opcoes.sort];
+  }
+
+  let direcao = 'ASC';
+  if (opcoes.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const { where, params } = montarFiltrosBusca(filtros);
+  const deslocamento = (opcoes.page - 1) * opcoes.pageSize;
+  const posLimite = params.length + 1;
+  const posDeslocamento = params.length + 2;
+
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ${where}
+    ORDER BY ${ordenacao} ${direcao}, id ASC
+    LIMIT $${posLimite} OFFSET $${posDeslocamento}
+  `;
+  const pagina = await executar(ctx, 'search_tasks', 'Busca de tarefas executada', sql, params.concat([opcoes.pageSize, deslocamento]));
+  const contagem = await executar(ctx, 'count_search_tasks', 'Total da busca contado', `SELECT COUNT(*)::int AS total FROM tarefas ${where}`, params);
+
+  return {
+    itens: pagina.rows,
+    total: contagem.rows[0].total
+  };
+}
+
 async function excluirTarefa(id, ctx) {
   const sql = 'DELETE FROM tarefas WHERE id = $1';
   const resultado = await executar(ctx, 'delete_task', 'Exclusão de tarefa executada', sql, [id]);
@@ -274,5 +331,6 @@ module.exports = {
   obterMetricasDashboard,
   obterMetricasDashboardCli,
   listarTarefas,
+  buscarTarefas,
   excluirTarefa
 };
