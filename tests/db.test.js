@@ -216,3 +216,57 @@ describe('consultas da CLI (issue #8)', () => {
     expect(await db.editarTarefaCli(99, DADOS, CTX_CLI)).toBeNull();
   });
 });
+
+describe('obterMetricasDashboard (issue #6)', () => {
+  test('retorna métricas agregadas e repassa request_id no log', async () => {
+    mockQuery.mockResolvedValue({
+      rows: [
+        {
+          status_a_fazer: '3',
+          status_fazendo: '2',
+          status_feito: '5',
+          prioridade_baixa: '4',
+          prioridade_media: '3',
+          prioridade_alta: '3',
+          prazos_atrasadas: '1',
+          prazos_no_prazo: '7'
+        }
+      ]
+    });
+
+    const metricas = await db.obterMetricasDashboard(CTX);
+
+    expect(metricas).toEqual({
+      status: { a_fazer: 3, fazendo: 2, feito: 5 },
+      prioridade: { baixa: 4, media: 3, alta: 3 },
+      prazos: { atrasadas: 1, no_prazo: 7 }
+    });
+
+    const sql = mockQuery.mock.calls[0][0];
+    expect(sql).toContain("COUNT(*) FILTER (WHERE status = 'a_fazer')");
+    expect(sql).toContain("COUNT(*) FILTER (WHERE prioridade = 'baixa')");
+    expect(sql).toContain("prazo < CURRENT_DATE AND status != 'feito'");
+    expect(sql).toContain("prazo >= CURRENT_DATE OR status = 'feito'");
+
+    const [linha] = linhasDeLog();
+    expect(linha).toMatchObject({
+      layer: 'db',
+      client: 'web',
+      operation: 'dashboard_metrics',
+      status: 'success',
+      request_id: 'req-teste-db'
+    });
+  });
+
+  test('retorna zeros caso a consulta retorne linha vazia', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const metricas = await db.obterMetricasDashboard(CTX);
+
+    expect(metricas).toEqual({
+      status: { a_fazer: 0, fazendo: 0, feito: 0 },
+      prioridade: { baixa: 0, media: 0, alta: 0 },
+      prazos: { atrasadas: 0, no_prazo: 0 }
+    });
+  });
+});
