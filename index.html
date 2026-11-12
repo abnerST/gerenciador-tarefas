@@ -1130,6 +1130,9 @@
           mostrarMensagemTarefas(dados.erro, 'erro');
         }
         await carregarTarefas();
+        if (typeof carregarDashboard === 'function') {
+          carregarDashboard();
+        }
       } catch (falha) {
         mostrarMensagemTarefas('Não foi possível conectar à API.', 'erro');
       }
