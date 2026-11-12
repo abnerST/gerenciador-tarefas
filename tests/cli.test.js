@@ -1,4 +1,4 @@
-const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores } = require('../cli');
+const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores, montarConsultaListagem, formatarListagem } = require('../cli');
 
 function respostaFalsa(status, corpo) {
   let texto = '';
@@ -348,5 +348,88 @@ describe('cadastro e edição pela CLI (issue #8)', () => {
 
     expect(await main(['editar', '--id', '99', ...ARGS, '--token', 'tk'], { env: ENV, saida })).toBe(1);
     expect(saida.erro).toHaveBeenCalledWith('Erro HTTP 404: Tarefa não encontrada');
+  });
+});
+
+describe('listagem e exclusão pela CLI (issue #9)', () => {
+  const PAGINA = {
+    itens: [{ id: 1, titulo: 'Estudar Git', responsavel: 'Abner', prioridade: 'alta', status: 'a_fazer', prazo: null }],
+    total: 6,
+    page: 1,
+    page_size: 5,
+    total_pages: 2
+  };
+
+  test('montarConsultaListagem envia só as opções informadas', () => {
+    expect(montarConsultaListagem({})).toBe('');
+    expect(montarConsultaListagem({ page: '2', 'page-size': '10', sort: 'prazo', order: 'desc', token: 'x' }))
+      .toBe('?page=2&page_size=10&sort=prazo&order=desc');
+  });
+
+  test('formatarListagem mostra cabeçalho, tarefas e resumo da paginação', () => {
+    const texto = formatarListagem(PAGINA);
+    expect(texto).toContain('ID | Título | Responsável | Prioridade | Status | Prazo');
+    expect(texto).toContain('#1 | Estudar Git | Abner | alta | a_fazer | sem prazo');
+    expect(texto).toContain('Página 1 de 2 (6 tarefas no total, 5 por página)');
+  });
+
+  test('formatarListagem avisa quando a página está vazia', () => {
+    expect(formatarListagem({ ...PAGINA, itens: [], total: 0, total_pages: 1 })).toContain('Nenhuma tarefa nesta página.');
+  });
+
+  test('listar envia GET /api/cli/records com as opções e o Bearer', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, PAGINA));
+    const saida = saidaFalsa();
+
+    const codigo = await main(['listar', '--page', '1', '--page-size', '5', '--sort', 'titulo', '--order', 'asc', '--token', 'tk'], { env: ENV, saida });
+
+    expect(codigo).toBe(0);
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records?page=1&page_size=5&sort=titulo&order=asc');
+    expect(opcoes.method).toBe('GET');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk');
+    expect(saida.info.mock.calls[0][0]).toContain('Página 1 de 2');
+  });
+
+  test('listar mostra o erro da API (401 sem token, 400 ordenação inválida)', async () => {
+    global.fetch.mockResolvedValueOnce(respostaFalsa(401, { erro: 'Token não informado' }));
+    const saida = saidaFalsa();
+    expect(await main(['listar'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('HTTP 401');
+
+    global.fetch.mockResolvedValueOnce(respostaFalsa(400, { erros: { sort: 'Ordenação deve ser id, titulo, responsavel, prioridade, status, prazo' } }));
+    expect(await main(['listar', '--sort', 'senha', '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[1][0]).toContain('--sort: Ordenação deve ser');
+  });
+
+  test('excluir exige --id', async () => {
+    const saida = saidaFalsa();
+    expect(await main(['excluir'], { env: ENV, saida })).toBe(1);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('excluir envia DELETE /api/cli/records/{id} e confirma com 204', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(204));
+    const saida = saidaFalsa();
+
+    expect(await main(['excluir', '--id', '3', '--token', 'tk'], { env: ENV, saida })).toBe(0);
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records/3');
+    expect(opcoes.method).toBe('DELETE');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk');
+    expect(saida.info).toHaveBeenCalledWith('Tarefa #3 excluída.');
+  });
+
+  test('excluir mostra 404 quando a tarefa não existe', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(404, { erro: 'Tarefa não encontrada' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['excluir', '--id', '99', '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toBe('Erro HTTP 404: Tarefa não encontrada');
+  });
+
+  test('a ajuda lista os comandos listar e excluir', () => {
+    expect(AJUDA).toContain('listar [--page <n>] [--page-size <n>]');
+    expect(AJUDA).toContain('excluir --id <n>');
   });
 });

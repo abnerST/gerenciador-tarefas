@@ -418,3 +418,48 @@ describe('buscarTarefas (issue #4)', () => {
   });
 });
 
+describe('listagem e exclusão pela CLI (issue #9)', () => {
+  const CTX_CLI = { request_id: 'req-cli-lista', client: 'cli' };
+
+  test('listarTarefasCli usa ordenação padrão, paginação e logs próprios da CLI', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1, titulo: 'Tarefa 1' }] })
+      .mockResolvedValueOnce({ rows: [{ total: 6 }] });
+
+    const resultado = await db.listarTarefasCli({ page: 2, pageSize: 5 }, CTX_CLI);
+
+    expect(resultado).toEqual({ itens: [{ id: 1, titulo: 'Tarefa 1' }], total: 6 });
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('ORDER BY id ASC, id ASC');
+    expect(params).toEqual([5, 5]);
+
+    const linhas = linhasDeLog();
+    expect(linhas.map((l) => l.operation)).toEqual(['cli_select_tasks', 'cli_count_tasks']);
+    linhas.forEach((l) => expect(l).toMatchObject({ layer: 'db', client: 'cli', request_id: 'req-cli-lista' }));
+  });
+
+  test('listarTarefasCli aplica a ordenação e a direção pedidas', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.listarTarefasCli({ page: 1, pageSize: 10, sort: 'prioridade', order: 'desc' }, CTX_CLI);
+
+    const sql = mockQuery.mock.calls[0][0];
+    expect(sql).toContain("CASE prioridade WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 ELSE 3 END DESC");
+  });
+
+  test('excluirTarefaCli devolve true quando a tarefa existia, com log cli_delete_task', async () => {
+    mockQuery.mockResolvedValue({ rowCount: 1 });
+
+    expect(await db.excluirTarefaCli(3, CTX_CLI)).toBe(true);
+    expect(mockQuery.mock.calls[0][1]).toEqual([3]);
+    expect(linhasDeLog()[0]).toMatchObject({ layer: 'db', client: 'cli', operation: 'cli_delete_task', request_id: 'req-cli-lista' });
+  });
+
+  test('excluirTarefaCli devolve false quando a tarefa não existe', async () => {
+    mockQuery.mockResolvedValue({ rowCount: 0 });
+
+    expect(await db.excluirTarefaCli(99, CTX_CLI)).toBe(false);
+  });
+});

@@ -11,7 +11,9 @@ jest.mock('../db', () => ({
   obterMetricasDashboardCli: jest.fn(),
   listarTarefas: jest.fn(),
   buscarTarefas: jest.fn(),
-  excluirTarefa: jest.fn()
+  excluirTarefa: jest.fn(),
+  listarTarefasCli: jest.fn(),
+  excluirTarefaCli: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -23,7 +25,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { app, start, clienteDaRota, autenticar, validarTarefa, validarFiltrosBusca, lerId, inteiroPositivo } = require('../api');
+const { app, start, clienteDaRota, autenticar, validarTarefa, validarFiltrosBusca, lerId, inteiroPositivo, validarOrdenacaoCli } = require('../api');
 
 let hashSenha;
 
@@ -911,3 +913,113 @@ describe('GET /api/web/records/search (issue #4)', () => {
   });
 });
 
+
+describe('listagem e exclusão pela CLI (issue #9)', () => {
+  const TOKEN = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('validarOrdenacaoCli aceita valores válidos ou ausentes e recusa os demais', () => {
+    expect(validarOrdenacaoCli({})).toEqual({});
+    expect(validarOrdenacaoCli({ sort: 'prazo', order: 'desc' })).toEqual({});
+    const erros = validarOrdenacaoCli({ sort: 'senha', order: 'cima' });
+    expect(Object.keys(erros)).toEqual(['sort', 'order']);
+  });
+
+  test('GET /api/cli/records responde 401 sem token, sem consultar o banco', async () => {
+    const resposta = await request(app).get('/api/cli/records');
+
+    expect(resposta.status).toBe(401);
+    expect(db.listarTarefasCli).not.toHaveBeenCalled();
+  });
+
+  test('GET /api/cli/records lista com padrões, consulta própria e o mesmo request_id', async () => {
+    db.listarTarefasCli.mockResolvedValue({ itens: [{ id: 1, titulo: 'Tarefa 1' }], total: 6 });
+
+    const resposta = await request(app).get('/api/cli/records').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({ itens: [{ id: 1, titulo: 'Tarefa 1' }], total: 6, page: 1, page_size: 5, total_pages: 2 });
+    expect(db.listarTarefas).not.toHaveBeenCalled();
+
+    const [opcoes, ctx] = db.listarTarefasCli.mock.calls[0];
+    expect(opcoes).toEqual({ page: 1, pageSize: 5, sort: undefined, order: undefined });
+    expect(ctx).toEqual({ request_id: resposta.headers['x-request-id'], client: 'cli' });
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'list' && l.status === 'success')).toBe(true);
+  });
+
+  test('GET /api/cli/records repassa página, tamanho, ordenação e direção', async () => {
+    db.listarTarefasCli.mockResolvedValue({ itens: [], total: 0 });
+
+    const resposta = await request(app)
+      .get('/api/cli/records?page=3&page_size=500&sort=titulo&order=desc')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.total_pages).toBe(1);
+    expect(db.listarTarefasCli.mock.calls[0][0]).toEqual({ page: 3, pageSize: 100, sort: 'titulo', order: 'desc' });
+  });
+
+  test('GET /api/cli/records responde 400 com ordenação inválida, sem consultar o banco', async () => {
+    const resposta = await request(app)
+      .get('/api/cli/records?sort=senha')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros.sort).toBeDefined();
+    expect(db.listarTarefasCli).not.toHaveBeenCalled();
+    expect(logsDaApi().some((l) => l.operation === 'list' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('GET /api/cli/records responde 500 quando o banco falha', async () => {
+    db.listarTarefasCli.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).get('/api/cli/records').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'list' && l.level === 'ERROR')).toBe(true);
+  });
+
+  test('DELETE /api/cli/records/:id responde 401 sem token, sem consultar o banco', async () => {
+    const resposta = await request(app).delete('/api/cli/records/1');
+
+    expect(resposta.status).toBe(401);
+    expect(db.excluirTarefaCli).not.toHaveBeenCalled();
+  });
+
+  test('DELETE /api/cli/records/:id responde 400 com id inválido', async () => {
+    const resposta = await request(app).delete('/api/cli/records/abc').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(400);
+    expect(db.excluirTarefaCli).not.toHaveBeenCalled();
+  });
+
+  test('DELETE /api/cli/records/:id responde 404 quando a tarefa não existe', async () => {
+    db.excluirTarefaCli.mockResolvedValue(false);
+
+    const resposta = await request(app).delete('/api/cli/records/99').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(404);
+    expect(logsDaApi().some((l) => l.operation === 'delete' && l.status === 'error' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('DELETE /api/cli/records/:id responde 204, usa a consulta própria e o mesmo request_id', async () => {
+    db.excluirTarefaCli.mockResolvedValue(true);
+
+    const resposta = await request(app).delete('/api/cli/records/3').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(204);
+    expect(db.excluirTarefa).not.toHaveBeenCalled();
+    const [id, ctx] = db.excluirTarefaCli.mock.calls[0];
+    expect(id).toBe(3);
+    expect(ctx).toEqual({ request_id: resposta.headers['x-request-id'], client: 'cli' });
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'delete' && l.status === 'success')).toBe(true);
+  });
+
+  test('DELETE /api/cli/records/:id responde 500 quando o banco falha', async () => {
+    db.excluirTarefaCli.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app).delete('/api/cli/records/3').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((l) => l.operation === 'delete' && l.level === 'ERROR')).toBe(true);
+  });
+});
