@@ -317,6 +317,40 @@ async function excluirTarefa(id, ctx) {
   return resultado.rowCount > 0;
 }
 
+// Listagem e exclusão pela CLI (issue #9): consultas próprias da CLI, com a mesma regra de ordenação da Web.
+async function listarTarefasCli(opcoes, ctx) {
+  let ordenacao = ORDENACOES.id;
+  if (Object.hasOwn(ORDENACOES, opcoes.sort)) {
+    ordenacao = ORDENACOES[opcoes.sort];
+  }
+
+  let direcao = 'ASC';
+  if (opcoes.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const deslocamento = (opcoes.page - 1) * opcoes.pageSize;
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ORDER BY ${ordenacao} ${direcao}, id ASC
+    LIMIT $1 OFFSET $2
+  `;
+  const pagina = await executar(ctx, 'cli_select_tasks', 'Página de tarefas consultada pela CLI', sql, [opcoes.pageSize, deslocamento]);
+  const contagem = await executar(ctx, 'cli_count_tasks', 'Total de tarefas contado pela CLI', 'SELECT COUNT(*)::int AS total FROM tarefas', []);
+
+  return {
+    itens: pagina.rows,
+    total: contagem.rows[0].total
+  };
+}
+
+async function excluirTarefaCli(id, ctx) {
+  const sql = 'DELETE FROM tarefas WHERE id = $1 RETURNING id';
+  const resultado = await executar(ctx, 'cli_delete_task', 'Exclusão de tarefa executada pela CLI', sql, [id]);
+  return resultado.rowCount > 0;
+}
+
 module.exports = {
   pool,
   log,
@@ -332,5 +366,7 @@ module.exports = {
   obterMetricasDashboardCli,
   listarTarefas,
   buscarTarefas,
-  excluirTarefa
+  excluirTarefa,
+  listarTarefasCli,
+  excluirTarefaCli
 };
