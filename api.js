@@ -184,6 +184,32 @@ function validarFiltrosBusca(query) {
   return { filtros, erros };
 }
 
+// Exportação CSV (issue #5): converte as tarefas em CSV (UTF-8, separador vírgula).
+const COLUNAS_CSV = ['id', 'titulo', 'responsavel', 'prioridade', 'status', 'prazo'];
+
+function campoCsv(valor) {
+  let texto = '';
+  if (valor !== null && valor !== undefined) {
+    texto = String(valor);
+  }
+  // Evita que planilhas interpretem o texto como fórmula.
+  if (/^[=+\-@]/.test(texto)) {
+    texto = "'" + texto;
+  }
+  if (/[",\r\n]/.test(texto)) {
+    texto = '"' + texto.replace(/"/g, '""') + '"';
+  }
+  return texto;
+}
+
+function paraCsv(tarefas) {
+  const linhas = [COLUNAS_CSV.join(',')];
+  tarefas.forEach((tarefa) => {
+    linhas.push(COLUNAS_CSV.map((coluna) => campoCsv(tarefa[coluna])).join(','));
+  });
+  return linhas.join('\r\n') + '\r\n';
+}
+
 app.get('/api/web/health', (req, res) => {
   logApi(req.ctx, 'health', 'success', 'Healthcheck web respondido');
   res.status(200).json({ status: 'ok' });
@@ -237,6 +263,29 @@ app.post('/api/web/records', autenticar, async (req, res) => {
     return res.status(201).json(tarefa);
   } catch (erro) {
     logApi(ctx, 'create', 'error', 'Erro interno ao criar tarefa', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// Exportação CSV (issue #5): todos os resultados filtrados, não apenas a página atual.
+app.get('/api/web/records/export', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const { filtros, erros } = validarFiltrosBusca(req.query);
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'export', 'error', 'Filtros da exportação inválidos', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefas = await db.exportarTarefas(filtros, { sort: req.query.sort, order: req.query.order }, ctx);
+    logApi(ctx, 'export', 'success', `CSV exportado com ${tarefas.length} tarefa(s)`);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="tarefas.csv"');
+    res.setHeader('X-Total-Count', String(tarefas.length));
+    return res.status(200).send('\uFEFF' + paraCsv(tarefas));
+  } catch (erro) {
+    logApi(ctx, 'export', 'error', 'Erro ao exportar tarefas', 'ERROR');
     return res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -574,6 +623,8 @@ module.exports = {
   autenticar,
   validarTarefa,
   validarFiltrosBusca,
+  campoCsv,
+  paraCsv,
   lerId,
   inteiroPositivo,
   validarOrdenacaoCli
