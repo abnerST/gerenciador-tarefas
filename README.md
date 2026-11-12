@@ -372,6 +372,83 @@ Exemplo de logs correlacionados no dashboard:
 {"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"web","operation":"dashboard","status":"success","request_id":"d5b2...","message":"Métricas do dashboard consultadas"}
 ```
 
+## Indicadores pela CLI (issue #12)
+
+O comando `indicadores` consulta o endpoint `/api/cli/dashboard` e exibe, em texto legível, os mesmos 3 grupos de métricas do dashboard Web. Exige token de acesso.
+
+### Como executar
+
+Com a aplicação no ar (`docker compose up --build`), em outro terminal:
+
+```bash
+# Com a variável de ambiente TAREFAS_TOKEN já exportada (ver seção CLI acima)
+docker compose run --rm cli indicadores
+
+# Passando o token diretamente via opção
+docker compose run --rm cli indicadores --token <token>
+
+# Combinando com a exportação inline (Linux / macOS / Git Bash)
+docker compose run --rm -e TAREFAS_TOKEN=<token> cli indicadores
+```
+
+No Windows PowerShell:
+
+```powershell
+docker compose run --rm -e TAREFAS_TOKEN=<token> cli indicadores
+```
+
+### Exemplo de saída
+
+```text
+Tarefas por Status:
+  A Fazer: 3
+  Fazendo: 2
+  Feito: 5
+
+Tarefas por Prioridade:
+  Baixa: 4
+  Média: 3
+  Alta: 3
+
+Tarefas por Prazo:
+  Atrasadas: 1
+  No Prazo: 7
+```
+
+Sem token (ou com token inválido), a CLI exibe uma mensagem de erro e encerra com código de saída 1:
+
+```text
+Token não informado. Use --token <token> ou defina TAREFAS_TOKEN.
+```
+
+### Endpoint da issue #12
+
+| Método | Rota | Autenticação | Códigos de resposta | Descrição |
+|---|---|---|---|---|
+| GET | `/api/cli/dashboard` | Bearer Token | 200, 401, 500 | Retorna as contagens agregadas para os 3 indicadores (mesma estrutura de `/api/web/dashboard`) |
+
+- **HTTP 200**: sucesso na consulta, retornando o objeto JSON com as contagens.
+- **HTTP 401**: ausência de token ou token inválido/expirado.
+- **HTTP 500**: erro interno ou falha na camada de persistência.
+
+### Logs gerados
+
+Cada execução de `indicadores` gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no banco:
+
+| Camada | Operação | Status | Descrição |
+|---|---|---|---|
+| `api` | `auth` | `success` | Validação do token JWT |
+| `db` | `dashboard_metrics` | `success` | Consulta SQL agregada das contagens |
+| `api` | `dashboard` | `success` | Métricas entregues à CLI |
+
+Exemplo de logs correlacionados:
+
+```json
+{"timestamp":"2026-11-11T12:00:00.000Z","level":"INFO","layer":"api","client":"cli","operation":"auth","status":"success","request_id":"e7c3...","message":"Token validado"}
+{"timestamp":"2026-11-11T12:00:00.010Z","level":"INFO","layer":"db","client":"cli","operation":"dashboard_metrics","status":"success","request_id":"e7c3...","message":"Métricas do dashboard consultadas"}
+{"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"cli","operation":"dashboard","status":"success","request_id":"e7c3...","message":"Métricas do dashboard consultadas pela CLI"}
+```
+
 ## Listagem e exclusão de tarefas na Web (issue #3)
 
 Depois do login, a tela inicial mostra a tabela de tarefas, carregada do banco sempre que a página é aberta.
