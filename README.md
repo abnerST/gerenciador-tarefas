@@ -518,6 +518,57 @@ Invoke-RestMethod -Method Delete -Uri http://localhost:3000/api/web/records/7 -H
 
 Cada listagem gera, com o mesmo `request_id`: `auth` (api), `select_tasks` e `count_tasks` (db) e `list` (api). Cada exclusão gera `auth` (api), `delete_task` (db) e `delete` (api). Falhas, como tarefa inexistente ou identificador inválido, aparecem com `level` `WARN` e `status` `error`.
 
+## Busca avançada na Web (issue #4)
+
+Acima da tabela de tarefas ficam três filtros, que podem ser usados sozinhos ou combinados:
+
+| Filtro | Como funciona |
+|---|---|
+| **Status** | `a_fazer`, `fazendo` ou `feito` (valor exato) |
+| **Prioridade** | `baixa`, `media` ou `alta` (valor exato) |
+| **Responsável** | busca parcial, sem diferenciar maiúsculas e minúsculas (ex.: `alex` encontra `Alexandre`) |
+
+- A consulta é **assíncrona**: a tabela é atualizada sem recarregar a página. Status e prioridade aplicam ao serem escolhidos; o responsável aplica com **Buscar** (ou Enter).
+- Os filtros são combinados com **E**: só aparecem as tarefas que atendem a todos os filtros preenchidos.
+- Paginação (5 por página) e ordenação por coluna continuam funcionando sobre o resultado filtrado.
+- **Limpar filtros** apaga os campos e volta a mostrar todas as tarefas.
+- Sem resultados, a tabela mostra "Nenhuma tarefa encontrada com esses filtros."
+
+### Endpoint da issue #4
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/web/records/search` | Bearer token | Busca tarefas com filtros combináveis, paginação e ordenação |
+
+Parâmetros (query string, todos opcionais): `status`, `prioridade`, `responsavel`, além de `page`, `page_size`, `sort` e `order` (mesmos valores da listagem da issue #3). Filtros vazios são ignorados.
+
+A resposta traz `itens`, `total`, `page`, `page_size`, `total_pages` e `filtros` (os filtros aplicados). Respostas: **200** com o resultado, **400** com `{ "erros": { campo: mensagem } }` quando um filtro é inválido (ex.: `status=pronto`), **401** sem token válido.
+
+A consulta no banco (`buscarTarefas`, no `db.js`) é própria da busca: o `WHERE` é montado só com os filtros informados, sempre com parâmetros (`$1`, `$2`...), e o total é contado com os mesmos filtros.
+
+### Exemplos pela linha de comando
+
+```bash
+# Tarefas "a fazer" de responsáveis com "alex" no nome
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/web/records/search?status=a_fazer&responsavel=alex"
+
+# Os três filtros combinados, ordenados por prazo decrescente
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/web/records/search?status=fazendo&prioridade=alta&responsavel=italo&sort=prazo&order=desc"
+```
+
+```powershell
+# Windows PowerShell
+Invoke-RestMethod -Uri "http://localhost:3000/api/web/records/search?status=a_fazer&responsavel=alex" -Headers @{ Authorization = "Bearer $token" }
+```
+
+(Como obter o `$TOKEN`/`$token`: veja os exemplos da issue #3.)
+
+### Logs da issue #4
+
+Cada busca gera, com o mesmo `request_id`: `auth` (api), `search_tasks` e `count_search_tasks` (db) e `search` (api). Filtro inválido gera `search` com `level` `WARN` e `status` `error`, sem consultar o banco.
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
