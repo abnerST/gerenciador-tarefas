@@ -292,6 +292,86 @@ Cada comando gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no
 | `criar` | `auth` e `create` | `insert_task` |
 | `editar` | `auth` e `update` | `update_task` |
 
+## Dashboard na Web (issue #6)
+
+Apresenta indicadores visuais agregados das tarefas na interface Web, atualizados de forma reativa após o login e a cada cadastro ou edição de tarefas. Os gráficos são renderizados com CSS puro em barras horizontais proporcionais, sem bibliotecas externas.
+
+### Indicadores e regras de cálculo
+
+O painel reúne 3 indicadores principais:
+
+1. **Tarefas por Status**:
+   - `A Fazer`: contagem de tarefas em `status = 'a_fazer'`.
+   - `Fazendo`: contagem de tarefas em `status = 'fazendo'`.
+   - `Feito`: contagem de tarefas em `status = 'feito'`.
+
+2. **Tarefas por Prioridade**:
+   - `Baixa`: contagem de tarefas com `prioridade = 'baixa'`.
+   - `Média`: contagem de tarefas com `prioridade = 'media'`.
+   - `Alta`: contagem de tarefas com `prioridade = 'alta'`.
+
+3. **Prazos de Entrega**:
+   - `Atrasadas` (destaque visual de alerta): tarefas com prazo preenchido menor que o dia atual e ainda não concluídas (`prazo IS NOT NULL AND prazo < CURRENT_DATE AND status != 'feito'`).
+   - `No Prazo`: tarefas com prazo definido para a data de hoje ou futura, ou que já foram finalizadas (`prazo IS NOT NULL AND (prazo >= CURRENT_DATE OR status = 'feito')`).
+
+### Endpoint da issue #6
+
+| Método | Rota | Autenticação | Códigos de resposta | Descrição |
+|---|---|---|---|---|
+| GET | `/api/web/dashboard` | Bearer Token | 200, 401, 500 | Retorna as contagens agregadas para os 3 indicadores |
+
+- **HTTP 200**: sucesso na consulta, retornando o objeto JSON com as contagens.
+- **HTTP 401**: ausência de token ou token inválido/expirado.
+- **HTTP 500**: erro interno ou falha na camada de persistência.
+
+Exemplo de resposta (HTTP 200):
+
+```json
+{
+  "status": {
+    "a_fazer": 3,
+    "fazendo": 2,
+    "feito": 5
+  },
+  "prioridade": {
+    "baixa": 4,
+    "media": 3,
+    "alta": 3
+  },
+  "prazos": {
+    "atrasadas": 1,
+    "no_prazo": 7
+  }
+}
+```
+
+### Exemplo via linha de comando
+
+Substitua `<TOKEN>` pelo token JWT obtido no endpoint de login:
+
+```bash
+curl -X GET http://localhost:3000/api/web/dashboard \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+### Operações de log geradas
+
+A consulta de métricas do dashboard valida o token e gera registros correlacionados entre as camadas com o mesmo `request_id`:
+
+| Camada | Operação | Status | Descrição |
+|---|---|---|---|
+| `api` | `auth` | `success` | Validação do token JWT |
+| `db` | `dashboard_metrics` | `success` | Consulta SQL agregada das contagens |
+| `api` | `dashboard` | `success` | Resposta das métricas entregue ao cliente Web |
+
+Exemplo de logs correlacionados no dashboard:
+
+```json
+{"timestamp":"2026-11-11T12:00:00.000Z","level":"INFO","layer":"api","client":"web","operation":"auth","status":"success","request_id":"d5b2...","message":"Token validado"}
+{"timestamp":"2026-11-11T12:00:00.010Z","level":"INFO","layer":"db","client":"web","operation":"dashboard_metrics","status":"success","request_id":"d5b2...","message":"Métricas do dashboard consultadas"}
+{"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"web","operation":"dashboard","status":"success","request_id":"d5b2...","message":"Métricas do dashboard consultadas"}
+```
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
