@@ -135,6 +135,69 @@
     [hidden] {
       display: none !important;
     }
+
+    /* Dashboard (issue #6) */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .dashboard-card {
+      border: 1px solid var(--borda);
+      border-radius: 6px;
+      padding: 16px;
+      background: var(--fundo);
+    }
+
+    .dashboard-card h4 {
+      margin: 0 0 12px;
+      font-size: 1rem;
+      color: var(--texto);
+    }
+
+    .metrica-linha {
+      margin-bottom: 12px;
+    }
+
+    .metrica-cabecalho {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+      margin-bottom: 4px;
+    }
+
+    .barra-trilho {
+      height: 8px;
+      background: #e1e4e8;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .barra-preenchimento {
+      height: 100%;
+      width: 0%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .barra-a-fazer { background-color: #6e7781; }
+    .barra-fazendo { background-color: #1f6feb; }
+    .barra-feito { background-color: #1a7f37; }
+
+    .barra-baixa { background-color: #2da44e; }
+    .barra-media { background-color: #bf8700; }
+    .barra-alta { background-color: #cf222e; }
+
+    .barra-atrasada { background-color: #cf222e; }
+    .barra-no-prazo { background-color: #1a7f37; }
+
+    .alerta-atrasada {
+      color: var(--erro);
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -217,7 +280,97 @@
         </div>
       </div>
 
-      <!-- Áreas das próximas issues: #3 tabela, #4 busca, #5 CSV, #6 dashboard -->
+      <div class="cartao" id="container-dashboard">
+        <h3>Dashboard</h3>
+        <p id="erro-dashboard" class="erro" role="alert"></p>
+        <div class="dashboard-grid">
+          <div class="dashboard-card">
+            <h4>Tarefas por Status</h4>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">A Fazer</span>
+                <span id="metrica-status-a-fazer-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-status-a-fazer" class="barra-preenchimento barra-a-fazer"></div>
+              </div>
+            </div>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">Fazendo</span>
+                <span id="metrica-status-fazendo-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-status-fazendo" class="barra-preenchimento barra-fazendo"></div>
+              </div>
+            </div>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">Feito</span>
+                <span id="metrica-status-feito-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-status-feito" class="barra-preenchimento barra-feito"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-card">
+            <h4>Tarefas por Prioridade</h4>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">Baixa</span>
+                <span id="metrica-prioridade-baixa-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-prioridade-baixa" class="barra-preenchimento barra-baixa"></div>
+              </div>
+            </div>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">Média</span>
+                <span id="metrica-prioridade-media-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-prioridade-media" class="barra-preenchimento barra-media"></div>
+              </div>
+            </div>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">Alta</span>
+                <span id="metrica-prioridade-alta-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-prioridade-alta" class="barra-preenchimento barra-alta"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-card">
+            <h4>Prazos de Entrega</h4>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label alerta-atrasada">Atrasadas</span>
+                <span id="metrica-prazos-atrasadas-qtd" class="metrica-qtd alerta-atrasada">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-prazos-atrasadas" class="barra-preenchimento barra-atrasada"></div>
+              </div>
+            </div>
+            <div class="metrica-linha">
+              <div class="metrica-cabecalho">
+                <span class="metrica-label">No Prazo</span>
+                <span id="metrica-prazos-no-prazo-qtd" class="metrica-qtd">0</span>
+              </div>
+              <div class="barra-trilho">
+                <div id="barra-prazos-no-prazo" class="barra-preenchimento barra-no-prazo"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Áreas das próximas issues: #3 tabela, #4 busca, #5 CSV -->
     </section>
   </main>
 
@@ -254,6 +407,7 @@
       document.getElementById('tela-login').hidden = true;
       document.getElementById('tela-inicial').hidden = false;
       document.getElementById('botao-sair').hidden = false;
+      carregarDashboard();
     }
 
     function mostrarTelaLogin() {
@@ -432,6 +586,8 @@
         document.getElementById('mensagem-feedback-tarefa').textContent = `Tarefa #${dados.id} salva`;
         document.getElementById('feedback-tarefa').hidden = false;
 
+        carregarDashboard();
+
         if (typeof carregarTarefas === 'function') {
           carregarTarefas();
         }
@@ -439,6 +595,114 @@
         document.getElementById('erro-tarefa-geral').textContent = 'Não foi possível conectar à API.';
       }
     }
+
+    // ---------- Dashboard (issue #6) ----------
+
+    function renderizarDashboard(dados) {
+      if (!dados) return;
+
+      const status = dados.status || {};
+      const prioridade = dados.prioridade || {};
+      const prazos = dados.prazos || {};
+
+      const aFazer = Number(status.a_fazer) || 0;
+      const fazendo = Number(status.fazendo) || 0;
+      const feito = Number(status.feito) || 0;
+      const totalStatus = aFazer + fazendo + feito;
+
+      const baixa = Number(prioridade.baixa) || 0;
+      const media = Number(prioridade.media) || 0;
+      const alta = Number(prioridade.alta) || 0;
+      const totalPrioridade = baixa + media + alta;
+
+      const atrasadas = Number(prazos.atrasadas) || 0;
+      const noPrazo = Number(prazos.no_prazo) || 0;
+      const totalPrazos = atrasadas + noPrazo;
+
+      // Status
+      const elStatusAFazerQtd = document.getElementById('metrica-status-a-fazer-qtd');
+      if (elStatusAFazerQtd) elStatusAFazerQtd.textContent = aFazer;
+      const elStatusFazendoQtd = document.getElementById('metrica-status-fazendo-qtd');
+      if (elStatusFazendoQtd) elStatusFazendoQtd.textContent = fazendo;
+      const elStatusFeitoQtd = document.getElementById('metrica-status-feito-qtd');
+      if (elStatusFeitoQtd) elStatusFeitoQtd.textContent = feito;
+
+      const elBarraStatusAFazer = document.getElementById('barra-status-a-fazer');
+      if (elBarraStatusAFazer) {
+        elBarraStatusAFazer.style.width = (totalStatus > 0 ? ((aFazer / totalStatus) * 100).toFixed(1) : '0') + '%';
+      }
+      const elBarraStatusFazendo = document.getElementById('barra-status-fazendo');
+      if (elBarraStatusFazendo) {
+        elBarraStatusFazendo.style.width = (totalStatus > 0 ? ((fazendo / totalStatus) * 100).toFixed(1) : '0') + '%';
+      }
+      const elBarraStatusFeito = document.getElementById('barra-status-feito');
+      if (elBarraStatusFeito) {
+        elBarraStatusFeito.style.width = (totalStatus > 0 ? ((feito / totalStatus) * 100).toFixed(1) : '0') + '%';
+      }
+
+      // Prioridade
+      const elPrioridadeBaixaQtd = document.getElementById('metrica-prioridade-baixa-qtd');
+      if (elPrioridadeBaixaQtd) elPrioridadeBaixaQtd.textContent = baixa;
+      const elPrioridadeMediaQtd = document.getElementById('metrica-prioridade-media-qtd');
+      if (elPrioridadeMediaQtd) elPrioridadeMediaQtd.textContent = media;
+      const elPrioridadeAltaQtd = document.getElementById('metrica-prioridade-alta-qtd');
+      if (elPrioridadeAltaQtd) elPrioridadeAltaQtd.textContent = alta;
+
+      const elBarraPrioridadeBaixa = document.getElementById('barra-prioridade-baixa');
+      if (elBarraPrioridadeBaixa) {
+        elBarraPrioridadeBaixa.style.width = (totalPrioridade > 0 ? ((baixa / totalPrioridade) * 100).toFixed(1) : '0') + '%';
+      }
+      const elBarraPrioridadeMedia = document.getElementById('barra-prioridade-media');
+      if (elBarraPrioridadeMedia) {
+        elBarraPrioridadeMedia.style.width = (totalPrioridade > 0 ? ((media / totalPrioridade) * 100).toFixed(1) : '0') + '%';
+      }
+      const elBarraPrioridadeAlta = document.getElementById('barra-prioridade-alta');
+      if (elBarraPrioridadeAlta) {
+        elBarraPrioridadeAlta.style.width = (totalPrioridade > 0 ? ((alta / totalPrioridade) * 100).toFixed(1) : '0') + '%';
+      }
+
+      // Prazos
+      const elPrazosAtrasadasQtd = document.getElementById('metrica-prazos-atrasadas-qtd');
+      if (elPrazosAtrasadasQtd) elPrazosAtrasadasQtd.textContent = atrasadas;
+      const elPrazosNoPrazoQtd = document.getElementById('metrica-prazos-no-prazo-qtd');
+      if (elPrazosNoPrazoQtd) elPrazosNoPrazoQtd.textContent = noPrazo;
+
+      const elBarraPrazosAtrasadas = document.getElementById('barra-prazos-atrasadas');
+      if (elBarraPrazosAtrasadas) {
+        elBarraPrazosAtrasadas.style.width = (totalPrazos > 0 ? ((atrasadas / totalPrazos) * 100).toFixed(1) : '0') + '%';
+      }
+      const elBarraPrazosNoPrazo = document.getElementById('barra-prazos-no-prazo');
+      if (elBarraPrazosNoPrazo) {
+        elBarraPrazosNoPrazo.style.width = (totalPrazos > 0 ? ((noPrazo / totalPrazos) * 100).toFixed(1) : '0') + '%';
+      }
+    }
+
+    async function carregarDashboard() {
+      const erroDashboard = document.getElementById('erro-dashboard');
+      if (erroDashboard) {
+        erroDashboard.textContent = '';
+      }
+
+      try {
+        const resposta = await apiFetch('/api/web/dashboard');
+        if (!resposta.ok) {
+          if (erroDashboard) {
+            erroDashboard.textContent = 'Não foi possível carregar as métricas do dashboard.';
+          }
+          return;
+        }
+
+        const dados = await resposta.json();
+        renderizarDashboard(dados);
+      } catch (falha) {
+        if (erroDashboard) {
+          erroDashboard.textContent = 'Não foi possível conectar à API.';
+        }
+      }
+    }
+
+    window.carregarDashboard = carregarDashboard;
+    window.renderizarDashboard = renderizarDashboard;
 
     async function entrar(evento) {
       evento.preventDefault();
