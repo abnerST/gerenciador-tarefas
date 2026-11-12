@@ -469,6 +469,77 @@ app.put('/api/cli/records/:id', async (req, res) => {
   }
 });
 
+// Listagem e exclusão pela CLI (issue #9): endpoints e consultas próprios da CLI.
+const ORDENACOES_CLI = ['id', 'titulo', 'responsavel', 'prioridade', 'status', 'prazo'];
+
+// Na CLI, ordenação inválida vira erro 400 (na Web o select só oferece valores válidos).
+function validarOrdenacaoCli(query) {
+  const erros = {};
+  if (query.sort !== undefined && !ORDENACOES_CLI.includes(query.sort)) {
+    erros.sort = `Ordenação deve ser ${ORDENACOES_CLI.join(', ')}`;
+  }
+  if (query.order !== undefined && !['asc', 'desc'].includes(query.order)) {
+    erros.order = 'Direção deve ser asc ou desc';
+  }
+  return erros;
+}
+
+app.get('/api/cli/records', async (req, res) => {
+  const ctx = req.ctx;
+  const erros = validarOrdenacaoCli(req.query);
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'list', 'error', 'Ordenação inválida na listagem pela CLI', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  const opcoes = {
+    page: inteiroPositivo(req.query.page, 1, Number.MAX_SAFE_INTEGER),
+    pageSize: inteiroPositivo(req.query.page_size, 5, 100),
+    sort: req.query.sort,
+    order: req.query.order
+  };
+
+  try {
+    const resultado = await db.listarTarefasCli(opcoes, ctx);
+    const totalPaginas = Math.max(1, Math.ceil(resultado.total / opcoes.pageSize));
+
+    logApi(ctx, 'list', 'success', 'Tarefas listadas pela CLI');
+    return res.status(200).json({
+      itens: resultado.itens,
+      total: resultado.total,
+      page: opcoes.page,
+      page_size: opcoes.pageSize,
+      total_pages: totalPaginas
+    });
+  } catch (erro) {
+    logApi(ctx, 'list', 'error', 'Erro interno ao listar tarefas pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+app.delete('/api/cli/records/:id', async (req, res) => {
+  const ctx = req.ctx;
+  const id = lerId(req.params.id);
+  if (!id) {
+    logApi(ctx, 'delete', 'error', 'ID inválido para exclusão pela CLI', 'WARN');
+    return res.status(400).json({ erro: 'ID inválido' });
+  }
+
+  try {
+    const excluida = await db.excluirTarefaCli(id, ctx);
+    if (!excluida) {
+      logApi(ctx, 'delete', 'error', 'Tarefa não encontrada para exclusão pela CLI', 'WARN');
+      return res.status(404).json({ erro: 'Tarefa não encontrada' });
+    }
+
+    logApi(ctx, 'delete', 'success', 'Tarefa excluída pela CLI');
+    return res.status(204).end();
+  } catch (erro) {
+    logApi(ctx, 'delete', 'error', 'Erro interno ao excluir tarefa pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 // Indicadores pela CLI (issue #12): consulta própria da CLI, com logs de client cli
 app.get('/api/cli/dashboard', async (req, res) => {
   const ctx = req.ctx;
@@ -504,5 +575,6 @@ module.exports = {
   validarTarefa,
   validarFiltrosBusca,
   lerId,
-  inteiroPositivo
+  inteiroPositivo,
+  validarOrdenacaoCli
 };
