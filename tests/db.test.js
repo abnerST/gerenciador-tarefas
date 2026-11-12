@@ -342,3 +342,24 @@ describe('excluirTarefa', () => {
     expect(excluida).toBe(false);
   });
 });
+
+describe('obterMetricasDashboardCli (issue #12)', () => {
+  test('consulta própria da CLI com a mesma regra de prazos e os 3 indicadores', async () => {
+    mockQuery.mockResolvedValue({
+      rows: [{ a_fazer: 2, fazendo: 1, feito: 3, baixa: 1, media: 3, alta: 2, atrasadas: 1, no_prazo: 4 }]
+    });
+
+    const metricas = await db.obterMetricasDashboardCli({ request_id: 'req-cli-dash', client: 'cli' });
+
+    expect(metricas).toEqual({
+      status: { a_fazer: 2, fazendo: 1, feito: 3 },
+      prioridade: { baixa: 1, media: 3, alta: 2 },
+      prazos: { atrasadas: 1, no_prazo: 4 }
+    });
+    const sql = mockQuery.mock.calls[0][0];
+    expect(sql).toContain("prazo < CURRENT_DATE AND status <> 'feito'");
+    expect(sql).toContain("prazo >= CURRENT_DATE OR status = 'feito'");
+    const [linha] = linhasDeLog();
+    expect(linha).toMatchObject({ layer: 'db', client: 'cli', operation: 'cli_dashboard_metrics', request_id: 'req-cli-dash' });
+  });
+});

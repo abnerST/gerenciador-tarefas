@@ -8,6 +8,7 @@ jest.mock('../db', () => ({
   inserirTarefaCli: jest.fn(),
   editarTarefaCli: jest.fn(),
   obterMetricasDashboard: jest.fn(),
+  obterMetricasDashboardCli: jest.fn(),
   listarTarefas: jest.fn(),
   excluirTarefa: jest.fn()
 }));
@@ -251,7 +252,7 @@ describe('GET /api/cli/dashboard (issue #12)', () => {
   });
 
   test('200 com token válido e resposta formatada, com client cli e request_id correlacionado', async () => {
-    db.obterMetricasDashboard.mockResolvedValue(metricasExemplo);
+    db.obterMetricasDashboardCli.mockResolvedValue(metricasExemplo);
 
     const resposta = await request(app)
       .get('/api/cli/dashboard')
@@ -260,7 +261,7 @@ describe('GET /api/cli/dashboard (issue #12)', () => {
     expect(resposta.status).toBe(200);
     expect(resposta.body).toEqual(metricasExemplo);
 
-    const ctxBanco = db.obterMetricasDashboard.mock.calls[0][0];
+    const ctxBanco = db.obterMetricasDashboardCli.mock.calls[0][0];
     expect(ctxBanco.request_id).toBe(resposta.headers['x-request-id']);
     expect(ctxBanco.client).toBe('cli');
 
@@ -268,7 +269,7 @@ describe('GET /api/cli/dashboard (issue #12)', () => {
   });
 
   test('500 em erro do banco', async () => {
-    db.obterMetricasDashboard.mockRejectedValue(new Error('falha no banco'));
+    db.obterMetricasDashboardCli.mockRejectedValue(new Error('falha no banco'));
 
     const resposta = await request(app)
       .get('/api/cli/dashboard')
