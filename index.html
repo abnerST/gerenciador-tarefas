@@ -468,6 +468,7 @@
           <div class="acoes-filtro">
             <button type="submit" id="botao-buscar">Buscar</button>
             <button type="button" id="botao-limpar-filtros" class="secundario">Limpar filtros</button>
+            <button type="button" id="botao-exportar-csv" class="secundario">Exportar CSV</button>
           </div>
         </form>
 
@@ -588,7 +589,6 @@
         </div>
       </div>
 
-      <!-- Área da próxima issue: #5 CSV -->
     </section>
   </main>
 
@@ -1284,6 +1284,60 @@
     document.getElementById('filtro-status').addEventListener('change', aplicarFiltros);
     document.getElementById('filtro-prioridade').addEventListener('change', aplicarFiltros);
     // ===== fim #4 =====
+
+    // ===== #5 Exportação CSV =====
+    // Exporta todos os resultados dos filtros da tela (não só a página atual), na ordenação atual da tabela.
+    async function exportarCsv() {
+      estadoTabela.filtros = lerFiltrosDaTela();
+      estadoTabela.pagina = 1;
+      carregarTarefas();
+
+      const parametros = new URLSearchParams({
+        sort: estadoTabela.sort,
+        order: estadoTabela.order
+      });
+      Object.keys(estadoTabela.filtros).forEach((nome) => {
+        parametros.set(nome, estadoTabela.filtros[nome]);
+      });
+
+      const botao = document.getElementById('botao-exportar-csv');
+      botao.disabled = true;
+      try {
+        const resposta = await apiFetch('/api/web/records/export?' + parametros.toString());
+        if (resposta.status === 401) {
+          return;
+        }
+        if (resposta.status === 400) {
+          const invalido = await resposta.json();
+          mostrarMensagemTarefas(Object.values(invalido.erros).join(' '), 'erro');
+          return;
+        }
+        if (!resposta.ok) {
+          mostrarMensagemTarefas('Não foi possível exportar o CSV.', 'erro');
+          return;
+        }
+
+        const arquivo = await resposta.blob();
+        const endereco = URL.createObjectURL(arquivo);
+        const link = document.createElement('a');
+        link.href = endereco;
+        link.download = 'tarefas.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(endereco);
+
+        const total = resposta.headers.get('X-Total-Count');
+        mostrarMensagemTarefas('CSV exportado com ' + total + ' tarefa(s).', 'sucesso');
+      } catch (falha) {
+        mostrarMensagemTarefas('Não foi possível conectar à API.', 'erro');
+      } finally {
+        botao.disabled = false;
+      }
+    }
+
+    document.getElementById('botao-exportar-csv').addEventListener('click', exportarCsv);
+    // ===== fim #5 =====
 
     document.getElementById('form-login').addEventListener('submit', entrar);
     document.getElementById('botao-sair').addEventListener('click', sair);
