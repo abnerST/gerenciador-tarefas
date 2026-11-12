@@ -327,6 +327,27 @@
     .mensagem.sucesso {
       color: var(--sucesso);
     }
+
+    .filtros-busca {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .filtros-busca .campo-filtro {
+      flex: 1 1 160px;
+    }
+
+    .filtros-busca label {
+      margin-top: 0;
+    }
+
+    .filtros-busca .acoes-filtro {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 
@@ -419,6 +440,36 @@
             <button id="botao-excluir" class="perigo" type="button" disabled>Excluir selecionada</button>
           </div>
         </div>
+
+        <!-- #4 Busca avançada -->
+        <form id="form-busca" class="filtros-busca" novalidate>
+          <div class="campo-filtro">
+            <label for="filtro-status">Status</label>
+            <select id="filtro-status">
+              <option value="">Todos</option>
+              <option value="a_fazer">A fazer</option>
+              <option value="fazendo">Fazendo</option>
+              <option value="feito">Feito</option>
+            </select>
+          </div>
+          <div class="campo-filtro">
+            <label for="filtro-prioridade">Prioridade</label>
+            <select id="filtro-prioridade">
+              <option value="">Todas</option>
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+          <div class="campo-filtro">
+            <label for="filtro-responsavel">Responsável</label>
+            <input id="filtro-responsavel" maxlength="80" placeholder="Parte do nome">
+          </div>
+          <div class="acoes-filtro">
+            <button type="submit" id="botao-buscar">Buscar</button>
+            <button type="button" id="botao-limpar-filtros" class="secundario">Limpar filtros</button>
+          </div>
+        </form>
 
         <div class="tabela-container">
           <table>
@@ -537,7 +588,7 @@
         </div>
       </div>
 
-      <!-- Áreas das próximas issues: #4 busca, #5 CSV -->
+      <!-- Área da próxima issue: #5 CSV -->
     </section>
   </main>
 
@@ -590,6 +641,8 @@
       cancelarEdicao();
       document.getElementById('feedback-tarefa').hidden = true;
       ultimaTarefaSalva = null;
+      document.getElementById('form-busca').reset();
+      estadoTabela.filtros = {};
       mostrarTelaLogin();
     }
 
@@ -942,7 +995,8 @@
       totalPaginas: 1,
       sort: 'id',
       order: 'asc',
-      selecionada: null
+      selecionada: null,
+      filtros: {}
     };
 
     function formatarPrazo(prazo) {
@@ -997,7 +1051,11 @@
 
       if (itens.length === 0) {
         const linha = document.createElement('tr');
-        const celula = criarCelula('Nenhuma tarefa cadastrada.');
+        let textoVazio = 'Nenhuma tarefa cadastrada.';
+        if (Object.keys(estadoTabela.filtros).length > 0) {
+          textoVazio = 'Nenhuma tarefa encontrada com esses filtros.';
+        }
+        const celula = criarCelula(textoVazio);
         celula.colSpan = 6;
         celula.className = 'vazio';
         linha.appendChild(celula);
@@ -1063,9 +1121,24 @@
         order: estadoTabela.order
       });
 
+      // Com filtros ativos, usa a busca avançada (#4); sem filtros, a listagem normal (#3).
+      let caminho = '/api/web/records?';
+      const nomesFiltros = Object.keys(estadoTabela.filtros);
+      if (nomesFiltros.length > 0) {
+        caminho = '/api/web/records/search?';
+        nomesFiltros.forEach((nome) => {
+          parametros.set(nome, estadoTabela.filtros[nome]);
+        });
+      }
+
       try {
-        const resposta = await apiFetch('/api/web/records?' + parametros.toString());
+        const resposta = await apiFetch(caminho + parametros.toString());
         if (resposta.status === 401) {
+          return;
+        }
+        if (resposta.status === 400) {
+          const invalido = await resposta.json();
+          mostrarMensagemTarefas(Object.values(invalido.erros).join(' '), 'erro');
           return;
         }
         if (!resposta.ok) {
@@ -1169,6 +1242,48 @@
       document.getElementById('container-formulario-tarefa').scrollIntoView({ behavior: 'smooth' });
     });
     // ===== fim #3 =====
+
+    // ===== #4 Busca avançada =====
+    function lerFiltrosDaTela() {
+      const filtros = {};
+      const status = document.getElementById('filtro-status').value;
+      const prioridade = document.getElementById('filtro-prioridade').value;
+      const responsavel = document.getElementById('filtro-responsavel').value.trim();
+
+      if (status) {
+        filtros.status = status;
+      }
+      if (prioridade) {
+        filtros.prioridade = prioridade;
+      }
+      if (responsavel) {
+        filtros.responsavel = responsavel;
+      }
+      return filtros;
+    }
+
+    // Aplica os filtros sem recarregar a página e volta para a primeira página.
+    function aplicarFiltros(evento) {
+      evento.preventDefault();
+      estadoTabela.filtros = lerFiltrosDaTela();
+      estadoTabela.pagina = 1;
+      mostrarMensagemTarefas('', '');
+      carregarTarefas();
+    }
+
+    function limparFiltros() {
+      document.getElementById('form-busca').reset();
+      estadoTabela.filtros = {};
+      estadoTabela.pagina = 1;
+      mostrarMensagemTarefas('', '');
+      carregarTarefas();
+    }
+
+    document.getElementById('form-busca').addEventListener('submit', aplicarFiltros);
+    document.getElementById('botao-limpar-filtros').addEventListener('click', limparFiltros);
+    document.getElementById('filtro-status').addEventListener('change', aplicarFiltros);
+    document.getElementById('filtro-prioridade').addEventListener('change', aplicarFiltros);
+    // ===== fim #4 =====
 
     document.getElementById('form-login').addEventListener('submit', entrar);
     document.getElementById('botao-sair').addEventListener('click', sair);
