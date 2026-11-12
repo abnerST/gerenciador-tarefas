@@ -13,6 +13,9 @@ Comandos:
   editar --id <n> --titulo <t> --responsavel <r> --prioridade <p> --status <s> [--prazo AAAA-MM-DD]
                                          Edita uma tarefa, enviando todos os campos (protegido)
   indicadores                            Exibe indicadores agregados das tarefas (protegido)
+  listar [--page <n>] [--page-size <n>] [--sort <campo>] [--order asc|desc]
+                                         Lista as tarefas com paginação e ordenação (protegido)
+  excluir --id <n>                       Exclui uma tarefa (protegido)
 
 Campos da tarefa (mesmas regras da Web):
   --titulo        obrigatório, até 120 caracteres
@@ -20,6 +23,12 @@ Campos da tarefa (mesmas regras da Web):
   --prioridade    obrigatório: baixa, media ou alta
   --status        obrigatório: a_fazer, fazendo ou feito
   --prazo         opcional, no formato AAAA-MM-DD
+
+Listagem:
+  --page          página desejada (padrão: 1)
+  --page-size     tarefas por página, de 1 a 100 (padrão: 5)
+  --sort          id, titulo, responsavel, prioridade, status ou prazo (padrão: id)
+  --order         asc ou desc (padrão: asc)
 
 Autenticação:
   Os comandos protegidos enviam "Authorization: Bearer <token>".
@@ -220,13 +229,68 @@ async function comandoIndicadores({ env, saida, token }) {
   return 0;
 }
 
+// Monta a query string só com as opções informadas; a API aplica os padrões.
+function montarConsultaListagem(opcoes) {
+  const parametros = new URLSearchParams();
+  const mapa = { page: 'page', 'page-size': 'page_size', sort: 'sort', order: 'order' };
+  for (const [opcao, parametro] of Object.entries(mapa)) {
+    if (typeof opcoes[opcao] === 'string') {
+      parametros.set(parametro, opcoes[opcao]);
+    }
+  }
+  const texto = parametros.toString();
+  return texto ? `?${texto}` : '';
+}
+
+function formatarListagem(dados) {
+  const linhas = [];
+  if (dados.itens.length === 0) {
+    linhas.push('Nenhuma tarefa nesta página.');
+  } else {
+    linhas.push('ID | Título | Responsável | Prioridade | Status | Prazo');
+    for (const tarefa of dados.itens) {
+      linhas.push(formatarTarefa(tarefa));
+    }
+  }
+  linhas.push('');
+  linhas.push(`Página ${dados.page} de ${dados.total_pages} (${dados.total} tarefas no total, ${dados.page_size} por página)`);
+  return linhas.join('\n');
+}
+
+async function comandoListar({ opcoes, env, saida, token }) {
+  const resultado = await chamarApi('GET', `/api/cli/records${montarConsultaListagem(opcoes)}`, { env, token });
+  if (resultado.status !== 200) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+  saida.info(formatarListagem(resultado.dados));
+  return 0;
+}
+
+async function comandoExcluir({ opcoes, env, saida, token }) {
+  if (typeof opcoes.id !== 'string') {
+    saida.erro('Informe o identificador com --id. Exemplo: excluir --id 3');
+    return 1;
+  }
+
+  const resultado = await chamarApi('DELETE', `/api/cli/records/${encodeURIComponent(opcoes.id)}`, { env, token });
+  if (resultado.status !== 204) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+  saida.info(`Tarefa #${opcoes.id} excluída.`);
+  return 0;
+}
+
 const COMANDOS = {
   health: comandoHealth,
   token: comandoToken,
   criar: comandoCriar,
   editar: comandoEditar,
   indicadores: comandoIndicadores,
-  dashboard: comandoIndicadores
+  dashboard: comandoIndicadores,
+  listar: comandoListar,
+  excluir: comandoExcluir
 };
 
 async function main(argv, { env = process.env, saida = { info: console.log, erro: console.error } } = {}) {
@@ -255,4 +319,4 @@ async function main(argv, { env = process.env, saida = { info: console.log, erro
 // Executa só quando chamado como programa (node cli.js ...), não quando importado pelos testes.
 if (require.main === module) main(process.argv.slice(2)).then((codigo) => { process.exitCode = codigo; });
 
-module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, AJUDA };
+module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, montarConsultaListagem, formatarListagem, AJUDA };
