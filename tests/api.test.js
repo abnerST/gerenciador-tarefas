@@ -231,6 +231,55 @@ describe('rotas protegidas da CLI', () => {
   });
 });
 
+describe('GET /api/cli/dashboard (issue #12)', () => {
+  const metricasExemplo = {
+    status: { a_fazer: 2, fazendo: 1, feito: 3 },
+    prioridade: { baixa: 1, media: 3, alta: 2 },
+    prazos: { atrasadas: 1, no_prazo: 4 }
+  };
+
+  function tokenValido() {
+    return `Bearer ${jwt.sign({ sub: 'admin' }, 'segredo-de-teste')}`;
+  }
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).get('/api/cli/dashboard');
+
+    expect(resposta.status).toBe(401);
+    expect(resposta.body.erro).toBeDefined();
+    expect(logsDaApi().some((l) => l.operation === 'auth' && l.status === 'error')).toBe(true);
+  });
+
+  test('200 com token válido e resposta formatada, com client cli e request_id correlacionado', async () => {
+    db.obterMetricasDashboard.mockResolvedValue(metricasExemplo);
+
+    const resposta = await request(app)
+      .get('/api/cli/dashboard')
+      .set('Authorization', tokenValido());
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual(metricasExemplo);
+
+    const ctxBanco = db.obterMetricasDashboard.mock.calls[0][0];
+    expect(ctxBanco.request_id).toBe(resposta.headers['x-request-id']);
+    expect(ctxBanco.client).toBe('cli');
+
+    expect(logsDaApi().some((l) => l.operation === 'dashboard' && l.status === 'success' && l.client === 'cli')).toBe(true);
+  });
+
+  test('500 em erro do banco', async () => {
+    db.obterMetricasDashboard.mockRejectedValue(new Error('falha no banco'));
+
+    const resposta = await request(app)
+      .get('/api/cli/dashboard')
+      .set('Authorization', tokenValido());
+
+    expect(resposta.status).toBe(500);
+    expect(resposta.body.erro).toBe('Erro interno');
+    expect(logsDaApi().some((l) => l.operation === 'dashboard' && l.status === 'error' && l.level === 'ERROR')).toBe(true);
+  });
+});
+
 describe('CLI — POST /api/cli/records e PUT /api/cli/records/:id (issue #8)', () => {
   const TAREFA = { titulo: 'Estudar Git', responsavel: 'Abner', prioridade: 'alta', status: 'a_fazer', prazo: '2026-11-20' };
 

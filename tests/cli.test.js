@@ -1,4 +1,4 @@
-const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA } = require('../cli');
+const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores } = require('../cli');
 
 function respostaFalsa(status, corpo) {
   let texto = '';
@@ -187,6 +187,85 @@ describe('main', () => {
     expect(espiaLog).toHaveBeenCalledWith(AJUDA);
 
     espiaLog.mockRestore();
+  });
+});
+
+describe('indicadores (issue #12)', () => {
+  const METRICAS = {
+    status: { a_fazer: 2, fazendo: 1, feito: 3 },
+    prioridade: { baixa: 1, media: 3, alta: 2 },
+    prazos: { atrasadas: 1, no_prazo: 4 }
+  };
+
+  test('erro sem token: retorna 1 e exibe mensagem clara', async () => {
+    const saida = saidaFalsa();
+
+    expect(await main(['indicadores'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('Token não informado');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('sucesso com --token: exibe os 3 blocos de indicadores em texto', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, METRICAS));
+    const saida = saidaFalsa();
+
+    expect(await main(['indicadores', '--token', 'tk-valido'], { env: ENV, saida })).toBe(0);
+
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/dashboard');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk-valido');
+
+    const saida0 = saida.info.mock.calls[0][0];
+    expect(saida0).toContain('Tarefas por Status:');
+    expect(saida0).toContain('A Fazer: 2');
+    expect(saida0).toContain('Fazendo: 1');
+    expect(saida0).toContain('Feito: 3');
+    expect(saida0).toContain('Tarefas por Prioridade:');
+    expect(saida0).toContain('Baixa: 1');
+    expect(saida0).toContain('Média: 3');
+    expect(saida0).toContain('Alta: 2');
+    expect(saida0).toContain('Tarefas por Prazo:');
+    expect(saida0).toContain('Atrasadas: 1');
+    expect(saida0).toContain('No Prazo: 4');
+  });
+
+  test('sucesso com TAREFAS_TOKEN no ambiente', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, METRICAS));
+    const saida = saidaFalsa();
+
+    expect(await main(['indicadores'], { env: { ...ENV, TAREFAS_TOKEN: 'tk-env' }, saida })).toBe(0);
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer tk-env');
+    expect(saida.info.mock.calls[0][0]).toContain('Tarefas por Status:');
+  });
+
+  test('alias "dashboard" funciona igual a "indicadores"', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, METRICAS));
+    const saida = saidaFalsa();
+
+    expect(await main(['dashboard', '--token', 'tk'], { env: ENV, saida })).toBe(0);
+    expect(saida.info.mock.calls[0][0]).toContain('Tarefas por Status:');
+  });
+
+  test('erro 401 da API é exibido corretamente', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(401, { erro: 'Token inválido' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['indicadores', '--token', 'invalido'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('HTTP 401');
+  });
+
+  test('"indicadores" aparece no texto de ajuda', async () => {
+    const saida = saidaFalsa();
+
+    expect(await main(['ajuda'], { env: ENV, saida })).toBe(0);
+    expect(saida.info.mock.calls[0][0]).toContain('indicadores');
+  });
+
+  test('formatarIndicadores com métricas ausentes usa zeros', () => {
+    const texto = formatarIndicadores(null);
+    expect(texto).toContain('A Fazer: 0');
+    expect(texto).toContain('Baixa: 0');
+    expect(texto).toContain('Atrasadas: 0');
   });
 });
 
