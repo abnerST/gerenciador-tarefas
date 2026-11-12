@@ -311,6 +311,29 @@ async function buscarTarefas(filtros, opcoes, ctx) {
   };
 }
 
+// Exportação CSV (issue #5): mesmos filtros da busca, mas sem paginação — devolve todos os resultados.
+async function exportarTarefas(filtros, opcoes, ctx) {
+  let ordenacao = ORDENACOES.id;
+  if (Object.hasOwn(ORDENACOES, opcoes.sort)) {
+    ordenacao = ORDENACOES[opcoes.sort];
+  }
+
+  let direcao = 'ASC';
+  if (opcoes.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const { where, params } = montarFiltrosBusca(filtros);
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ${where}
+    ORDER BY ${ordenacao} ${direcao}, id ASC
+  `;
+  const resultado = await executar(ctx, 'export_tasks', 'Tarefas consultadas para exportação CSV', sql, params);
+  return resultado.rows;
+}
+
 async function excluirTarefa(id, ctx) {
   const sql = 'DELETE FROM tarefas WHERE id = $1';
   const resultado = await executar(ctx, 'delete_task', 'Exclusão de tarefa executada', sql, [id]);
@@ -366,6 +389,7 @@ module.exports = {
   obterMetricasDashboardCli,
   listarTarefas,
   buscarTarefas,
+  exportarTarefas,
   excluirTarefa,
   listarTarefasCli,
   excluirTarefaCli
