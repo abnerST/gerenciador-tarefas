@@ -438,14 +438,16 @@ Cada execução de `indicadores` gera linhas com `"client":"cli"` e o mesmo `req
 | Camada | Operação | Status | Descrição |
 |---|---|---|---|
 | `api` | `auth` | `success` | Validação do token JWT |
-| `db` | `dashboard_metrics` | `success` | Consulta SQL agregada das contagens |
+| `db` | `cli_dashboard_metrics` | `success` | Consulta SQL própria da CLI com as mesmas regras de prazos do dashboard Web |
 | `api` | `dashboard` | `success` | Métricas entregues à CLI |
+
+> A rota `/api/cli/dashboard` usa uma consulta própria da CLI (`obterMetricasDashboardCli`, no `db.js`), com a mesma regra do dashboard Web, por isso os valores são idênticos. Os logs saem com `client: cli`: `cli_dashboard_metrics` (db) e `dashboard` (api), com o mesmo `request_id`.
 
 Exemplo de logs correlacionados:
 
 ```json
 {"timestamp":"2026-11-11T12:00:00.000Z","level":"INFO","layer":"api","client":"cli","operation":"auth","status":"success","request_id":"e7c3...","message":"Token validado"}
-{"timestamp":"2026-11-11T12:00:00.010Z","level":"INFO","layer":"db","client":"cli","operation":"dashboard_metrics","status":"success","request_id":"e7c3...","message":"Métricas do dashboard consultadas"}
+{"timestamp":"2026-11-11T12:00:00.010Z","level":"INFO","layer":"db","client":"cli","operation":"cli_dashboard_metrics","status":"success","request_id":"e7c3...","message":"Indicadores da CLI consultados"}
 {"timestamp":"2026-11-11T12:00:00.015Z","level":"INFO","layer":"api","client":"cli","operation":"dashboard","status":"success","request_id":"e7c3...","message":"Métricas do dashboard consultadas pela CLI"}
 ```
 
