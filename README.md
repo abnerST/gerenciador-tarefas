@@ -292,6 +292,76 @@ Cada comando gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no
 | `criar` | `auth` e `create` | `insert_task` |
 | `editar` | `auth` e `update` | `update_task` |
 
+## Listagem e exclusão de tarefas pela CLI (issue #9)
+
+A CLI lista as tarefas com **paginação e ordenação** e exclui uma tarefa pelo id. Os comandos usam endpoints próprios da CLI, com consultas próprias no `db.js` (`listarTarefasCli` e `excluirTarefaCli`), e exigem token. Uma tarefa excluída pela CLI some também da tabela da Web, porque as duas usam o mesmo banco.
+
+Com o token na variável `TAREFAS_TOKEN` (veja a seção da CLI acima):
+
+```bash
+# Primeira página, 5 tarefas, ordenadas por id
+docker compose run --rm cli listar
+
+# Página 2, 10 por página, ordenadas por prioridade da mais alta para a mais baixa
+docker compose run --rm cli listar --page 2 --page-size 10 --sort prioridade --order desc
+
+# Excluir a tarefa 3
+docker compose run --rm cli excluir --id 3
+# Tarefa #3 excluída.
+```
+
+Os comandos são iguais no Bash e no PowerShell.
+
+Exemplo de saída do `listar`:
+
+```text
+ID | Título | Responsável | Prioridade | Status | Prazo
+#1 | Tarefa 1 | Abner | baixa | a_fazer | sem prazo
+#2 | Tarefa 2 | Abner | alta | a_fazer | 2026-11-20
+
+Página 1 de 2 (6 tarefas no total, 5 por página)
+```
+
+| Opção | Regra |
+|---|---|
+| `--page` | Página desejada (padrão: 1) |
+| `--page-size` | Tarefas por página, de 1 a 100 (padrão: 5) |
+| `--sort` | `id`, `titulo`, `responsavel`, `prioridade`, `status` ou `prazo` (padrão: `id`) |
+| `--order` | `asc` ou `desc` (padrão: `asc`) |
+| `--id` | Obrigatório no `excluir`: identificador da tarefa |
+
+Ordenação inválida é recusada pela API com a mensagem do campo:
+
+```text
+Dados inválidos (HTTP 400):
+  --sort: Ordenação deve ser id, titulo, responsavel, prioridade, status, prazo
+```
+
+Excluir um id que não existe responde `Erro HTTP 404: Tarefa não encontrada`.
+
+### Endpoints da issue #9
+
+| Método | Rota | Autenticação | Respostas |
+|---|---|---|---|
+| GET | `/api/cli/records?page=&page_size=&sort=&order=` | Bearer token | 200 página de tarefas, 400 ordenação inválida, 401 sem token, 500 erro interno |
+| DELETE | `/api/cli/records/{id}` | Bearer token | 204 excluída, 400 id inválido, 401 sem token, 404 não encontrada, 500 erro interno |
+
+A resposta do `GET` traz `itens`, `total`, `page`, `page_size` e `total_pages`.
+
+### Logs gerados
+
+Cada comando gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no banco:
+
+| Comando | Camada api | Camada db |
+|---|---|---|
+| `listar` | `auth` e `list` | `cli_select_tasks` e `cli_count_tasks` |
+| `excluir` | `auth` e `delete` | `cli_delete_task` |
+
+```json
+{"timestamp":"2026-11-12T15:38:22.798Z","level":"INFO","layer":"db","client":"cli","operation":"cli_delete_task","status":"success","request_id":"3980b32b...","message":"Exclusão de tarefa executada pela CLI"}
+{"timestamp":"2026-11-12T15:38:22.798Z","level":"INFO","layer":"api","client":"cli","operation":"delete","status":"success","request_id":"3980b32b...","message":"Tarefa excluída pela CLI"}
+```
+
 ## Dashboard na Web (issue #6)
 
 Apresenta indicadores visuais agregados das tarefas na interface Web, atualizados de forma reativa após o login e a cada cadastro ou edição de tarefas. Os gráficos são renderizados com CSS puro em barras horizontais proporcionais, sem bibliotecas externas.
