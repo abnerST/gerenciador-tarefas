@@ -639,6 +639,61 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/web/records/search?status=a_fa
 
 Cada busca gera, com o mesmo `request_id`: `auth` (api), `search_tasks` e `count_search_tasks` (db) e `search` (api). Filtro inválido gera `search` com `level` `WARN` e `status` `error`, sem consultar o banco.
 
+## Exportação CSV na Web (issue #5)
+
+O botão **Exportar CSV**, ao lado dos filtros da tabela, baixa o arquivo `tarefas.csv` com **todos os resultados** que atendem aos filtros da tela, e não só a página atual. Sem filtros, exporta todas as tarefas.
+
+- Os filtros são os mesmos da busca da issue #4 (status, prioridade e responsável). Ao exportar, a tabela também é atualizada com esses filtros, para mostrar exatamente o que foi exportado.
+- A ordem das linhas segue a ordenação atual da tabela.
+- Depois do download, a página mostra quantas tarefas foram exportadas.
+
+### Formato do arquivo
+
+- UTF-8 (com BOM, para abrir com acentos no Excel), separador vírgula e quebra de linha `\r\n`.
+- Cabeçalho: `id,titulo,responsavel,prioridade,status,prazo`.
+- Prazo no formato `YYYY-MM-DD`; tarefa sem prazo fica com o campo vazio.
+- Textos com vírgula, aspas ou quebra de linha ficam entre aspas. Textos que começam com `=`, `+`, `-` ou `@` recebem um apóstrofo na frente, para a planilha não executá-los como fórmula.
+
+Exemplo:
+
+```csv
+id,titulo,responsavel,prioridade,status,prazo
+5,Listagem,Alexandre,media,a_fazer,2026-11-11
+7,"Busca, avançada",Alexandre,alta,a_fazer,2026-11-20
+```
+
+### Endpoint da issue #5
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/web/records/export` | Bearer token | Devolve o CSV de todas as tarefas que atendem aos filtros |
+
+Parâmetros (query string, todos opcionais): `status`, `prioridade`, `responsavel`, `sort` e `order`, com os mesmos valores da busca. Não há paginação.
+
+Respostas: **200** com o CSV (`Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="tarefas.csv"` e o cabeçalho `X-Total-Count` com a quantidade de linhas), **400** com `{ "erros": ... }` quando um filtro é inválido, **401** sem token válido.
+
+A consulta no banco (`exportarTarefas`, no `db.js`) é própria da exportação: usa o mesmo `WHERE` parametrizado da busca, mas **sem** `LIMIT`/`OFFSET`.
+
+### Exemplos pela linha de comando
+
+```bash
+# Todas as tarefas
+curl -H "Authorization: Bearer $TOKEN" -o tarefas.csv http://localhost:3000/api/web/records/export
+
+# Só as "a fazer" de responsáveis com "alex" no nome
+curl -H "Authorization: Bearer $TOKEN" -o tarefas.csv \
+  "http://localhost:3000/api/web/records/export?status=a_fazer&responsavel=alex"
+```
+
+```powershell
+# Windows PowerShell
+Invoke-WebRequest -Uri "http://localhost:3000/api/web/records/export?status=a_fazer" -Headers @{ Authorization = "Bearer $token" } -OutFile tarefas.csv
+```
+
+### Logs da issue #5
+
+Cada exportação gera, com o mesmo `request_id`: `auth` (api), `export_tasks` (db) e `export` (api, com a quantidade de tarefas exportadas). Filtro inválido gera `export` com `level` `WARN` e `status` `error`, sem consultar o banco.
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
