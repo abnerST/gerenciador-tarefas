@@ -149,6 +149,41 @@ function validarTarefa(corpo) {
   return { dados, erros };
 }
 
+// Valida os filtros da busca (issue #4); filtros vazios são ignorados.
+function validarFiltrosBusca(query) {
+  const erros = {};
+  const filtros = {};
+
+  if (typeof query.status === 'string' && query.status.trim() !== '') {
+    const status = query.status.trim();
+    if (['a_fazer', 'fazendo', 'feito'].includes(status)) {
+      filtros.status = status;
+    } else {
+      erros.status = 'Status deve ser a_fazer, fazendo ou feito';
+    }
+  }
+
+  if (typeof query.prioridade === 'string' && query.prioridade.trim() !== '') {
+    const prioridade = query.prioridade.trim();
+    if (['baixa', 'media', 'alta'].includes(prioridade)) {
+      filtros.prioridade = prioridade;
+    } else {
+      erros.prioridade = 'Prioridade deve ser baixa, media ou alta';
+    }
+  }
+
+  if (typeof query.responsavel === 'string' && query.responsavel.trim() !== '') {
+    const responsavel = query.responsavel.trim();
+    if (responsavel.length > 80) {
+      erros.responsavel = 'Responsável deve ter no máximo 80 caracteres';
+    } else {
+      filtros.responsavel = responsavel;
+    }
+  }
+
+  return { filtros, erros };
+}
+
 app.get('/api/web/health', (req, res) => {
   logApi(req.ctx, 'health', 'success', 'Healthcheck web respondido');
   res.status(200).json({ status: 'ok' });
@@ -202,6 +237,45 @@ app.post('/api/web/records', autenticar, async (req, res) => {
     return res.status(201).json(tarefa);
   } catch (erro) {
     logApi(ctx, 'create', 'error', 'Erro interno ao criar tarefa', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// Busca avançada (issue #4): filtros combináveis por status, prioridade e responsável.
+app.get('/api/web/records/search', autenticar, async (req, res) => {
+  const ctx = req.ctx;
+  const { filtros, erros } = validarFiltrosBusca(req.query);
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'search', 'error', 'Filtros de busca inválidos', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  const opcoes = {
+    page: inteiroPositivo(req.query.page, 1, Number.MAX_SAFE_INTEGER),
+    pageSize: inteiroPositivo(req.query.page_size, 5, 100),
+    sort: req.query.sort,
+    order: req.query.order
+  };
+
+  try {
+    const resultado = await db.buscarTarefas(filtros, opcoes, ctx);
+    let totalPaginas = Math.ceil(resultado.total / opcoes.pageSize);
+    if (totalPaginas < 1) {
+      totalPaginas = 1;
+    }
+
+    logApi(ctx, 'search', 'success', 'Busca de tarefas realizada');
+    return res.status(200).json({
+      itens: resultado.itens,
+      total: resultado.total,
+      page: opcoes.page,
+      page_size: opcoes.pageSize,
+      total_pages: totalPaginas,
+      filtros
+    });
+  } catch (erro) {
+    logApi(ctx, 'search', 'error', 'Erro ao buscar tarefas', 'ERROR');
     return res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -428,6 +502,7 @@ module.exports = {
   clienteDaRota,
   autenticar,
   validarTarefa,
+  validarFiltrosBusca,
   lerId,
   inteiroPositivo
 };
