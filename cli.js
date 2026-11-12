@@ -12,6 +12,7 @@ Comandos:
                                          Cadastra uma tarefa (protegido)
   editar --id <n> --titulo <t> --responsavel <r> --prioridade <p> --status <s> [--prazo AAAA-MM-DD]
                                          Edita uma tarefa, enviando todos os campos (protegido)
+  indicadores                            Exibe indicadores agregados das tarefas (protegido)
 
 Campos da tarefa (mesmas regras da Web):
   --titulo        obrigatório, até 120 caracteres
@@ -148,6 +149,28 @@ function formatarTarefa(tarefa) {
   return `#${tarefa.id} | ${tarefa.titulo} | ${tarefa.responsavel} | ${tarefa.prioridade} | ${tarefa.status} | ${prazo}`;
 }
 
+function formatarIndicadores(metricas) {
+  const status = (metricas && metricas.status) || {};
+  const prioridade = (metricas && metricas.prioridade) || {};
+  const prazos = (metricas && metricas.prazos) || {};
+
+  return [
+    'Tarefas por Status:',
+    `  A Fazer: ${status.a_fazer ?? 0}`,
+    `  Fazendo: ${status.fazendo ?? 0}`,
+    `  Feito: ${status.feito ?? 0}`,
+    '',
+    'Tarefas por Prioridade:',
+    `  Baixa: ${prioridade.baixa ?? 0}`,
+    `  Média: ${prioridade.media ?? 0}`,
+    `  Alta: ${prioridade.alta ?? 0}`,
+    '',
+    'Tarefas por Prazo:',
+    `  Atrasadas: ${prazos.atrasadas ?? 0}`,
+    `  No Prazo: ${prazos.no_prazo ?? 0}`
+  ].join('\n');
+}
+
 async function comandoCriar({ opcoes, env, saida, token }) {
   const resultado = await chamarApi('POST', '/api/cli/records', {
     env,
@@ -181,11 +204,29 @@ async function comandoEditar({ opcoes, env, saida, token }) {
   return 0;
 }
 
+async function comandoIndicadores({ env, saida, token }) {
+  if (!token) {
+    saida.erro('Token não informado. Use --token <token> ou defina TAREFAS_TOKEN.');
+    return 1;
+  }
+
+  const resultado = await chamarApi('GET', '/api/cli/dashboard', { env, token });
+  if (resultado.status !== 200) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+
+  saida.info(formatarIndicadores(resultado.dados));
+  return 0;
+}
+
 const COMANDOS = {
   health: comandoHealth,
   token: comandoToken,
   criar: comandoCriar,
-  editar: comandoEditar
+  editar: comandoEditar,
+  indicadores: comandoIndicadores,
+  dashboard: comandoIndicadores
 };
 
 async function main(argv, { env = process.env, saida = { info: console.log, erro: console.error } } = {}) {
@@ -214,4 +255,4 @@ async function main(argv, { env = process.env, saida = { info: console.log, erro
 // Executa só quando chamado como programa (node cli.js ...), não quando importado pelos testes.
 if (require.main === module) main(process.argv.slice(2)).then((codigo) => { process.exitCode = codigo; });
 
-module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA };
+module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, AJUDA };

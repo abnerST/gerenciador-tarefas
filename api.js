@@ -395,6 +395,19 @@ app.put('/api/cli/records/:id', async (req, res) => {
   }
 });
 
+// Indicadores pela CLI (issue #12): reutiliza a consulta de métricas do dashboard com logs de client cli
+app.get('/api/cli/dashboard', async (req, res) => {
+  const ctx = req.ctx;
+  try {
+    const metricas = await db.obterMetricasDashboard(ctx);
+    logApi(ctx, 'dashboard', 'success', 'Métricas do dashboard consultadas pela CLI');
+    return res.status(200).json(metricas);
+  } catch (erro) {
+    logApi(ctx, 'dashboard', 'error', 'Erro interno ao consultar dashboard pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 async function start() {
   const ctx = { request_id: 'startup', client: 'web' };
   await db.criarTabelas(ctx);
