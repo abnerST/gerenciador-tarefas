@@ -463,3 +463,39 @@ describe('listagem e exclusão pela CLI (issue #9)', () => {
     expect(await db.excluirTarefaCli(99, CTX_CLI)).toBe(false);
   });
 });
+
+describe('exportarTarefas (issue #5)', () => {
+  test('sem filtros devolve todas as linhas, sem LIMIT', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: 1 }, { id: 2 }] });
+
+    const linhas = await db.exportarTarefas({}, {}, CTX);
+
+    expect(linhas).toEqual([{ id: 1 }, { id: 2 }]);
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).not.toContain('WHERE');
+    expect(sql).not.toContain('LIMIT');
+    expect(sql).toContain('ORDER BY id ASC');
+    expect(params).toEqual([]);
+  });
+
+  test('usa os mesmos filtros da busca e a ordenação pedida', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    await db.exportarTarefas({ status: 'feito', prioridade: 'alta', responsavel: 'ana' }, { sort: 'prazo', order: 'desc' }, CTX);
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(sql).toContain('ORDER BY prazo DESC');
+    expect(params).toEqual(['feito', 'alta', '%ana%']);
+  });
+
+  test('ignora ordenação não permitida e registra o log com o request_id', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    await db.exportarTarefas({}, { sort: 'x; DROP TABLE tarefas' }, CTX);
+
+    expect(mockQuery.mock.calls[0][0]).toContain('ORDER BY id ASC');
+    expect(linhasDeLog()[0]).toMatchObject({ layer: 'db', operation: 'export_tasks', request_id: 'req-teste-db' });
+  });
+});
+

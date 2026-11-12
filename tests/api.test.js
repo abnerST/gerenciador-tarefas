@@ -11,6 +11,7 @@ jest.mock('../db', () => ({
   obterMetricasDashboardCli: jest.fn(),
   listarTarefas: jest.fn(),
   buscarTarefas: jest.fn(),
+  exportarTarefas: jest.fn(),
   excluirTarefa: jest.fn(),
   listarTarefasCli: jest.fn(),
   excluirTarefaCli: jest.fn()
@@ -25,7 +26,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { app, start, clienteDaRota, autenticar, validarTarefa, validarFiltrosBusca, lerId, inteiroPositivo, validarOrdenacaoCli } = require('../api');
+const { app, start, clienteDaRota, autenticar, validarTarefa, validarFiltrosBusca, campoCsv, paraCsv, lerId, inteiroPositivo, validarOrdenacaoCli } = require('../api');
 
 let hashSenha;
 
@@ -1023,3 +1024,94 @@ describe('listagem e exclusão pela CLI (issue #9)', () => {
     expect(logsDaApi().some((l) => l.operation === 'delete' && l.level === 'ERROR')).toBe(true);
   });
 });
+
+describe('campoCsv e paraCsv (issue #5)', () => {
+  test('mantém texto simples e deixa vazio o valor nulo', () => {
+    expect(campoCsv('Ana')).toBe('Ana');
+    expect(campoCsv(7)).toBe('7');
+    expect(campoCsv(null)).toBe('');
+    expect(campoCsv(undefined)).toBe('');
+  });
+
+  test('coloca entre aspas textos com vírgula, aspas ou quebra de linha', () => {
+    expect(campoCsv('a, b')).toBe('"a, b"');
+    expect(campoCsv('diz "oi"')).toBe('"diz ""oi"""');
+    expect(campoCsv('linha1\nlinha2')).toBe('"linha1\nlinha2"');
+  });
+
+  test('neutraliza textos que seriam lidos como fórmula', () => {
+    expect(campoCsv('=SOMA(A1)')).toBe("'=SOMA(A1)");
+    expect(campoCsv('@x')).toBe("'@x");
+  });
+
+  test('gera cabeçalho e uma linha por tarefa', () => {
+    const csv = paraCsv([
+      { id: 1, titulo: 'Tarefa', responsavel: 'Ana', prioridade: 'alta', status: 'feito', prazo: '2026-11-20' },
+      { id: 2, titulo: 'Sem prazo', responsavel: 'Bia', prioridade: 'baixa', status: 'a_fazer', prazo: null }
+    ]);
+
+    expect(csv).toBe(
+      'id,titulo,responsavel,prioridade,status,prazo\r\n' +
+      '1,Tarefa,Ana,alta,feito,2026-11-20\r\n' +
+      '2,Sem prazo,Bia,baixa,a_fazer,\r\n'
+    );
+  });
+});
+
+describe('GET /api/web/records/export (issue #5)', () => {
+  const TOKEN_CSV = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).get('/api/web/records/export');
+
+    expect(resposta.status).toBe(401);
+    expect(db.exportarTarefas).not.toHaveBeenCalled();
+  });
+
+  test('400 com filtro inválido, sem consultar o banco', async () => {
+    const resposta = await request(app)
+      .get('/api/web/records/export?status=pronto')
+      .set('Authorization', `Bearer ${TOKEN_CSV}`);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros.status).toBeDefined();
+    expect(db.exportarTarefas).not.toHaveBeenCalled();
+    expect(logsDaApi().some((linha) => linha.operation === 'export' && linha.level === 'WARN')).toBe(true);
+  });
+
+  test('devolve o CSV de todos os filtrados, com o mesmo request_id no banco', async () => {
+    db.exportarTarefas.mockResolvedValue([
+      { id: 3, titulo: 'Busca', responsavel: 'Alexandre', prioridade: 'alta', status: 'a_fazer', prazo: '2026-11-20' }
+    ]);
+
+    const resposta = await request(app)
+      .get('/api/web/records/export?status=a_fazer&responsavel=alex&sort=prazo&order=desc')
+      .set('Authorization', `Bearer ${TOKEN_CSV}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.headers['content-type']).toContain('text/csv');
+    expect(resposta.headers['content-disposition']).toContain('tarefas.csv');
+    expect(resposta.headers['x-total-count']).toBe('1');
+    expect(resposta.text).toBe(
+      '﻿id,titulo,responsavel,prioridade,status,prazo\r\n3,Busca,Alexandre,alta,a_fazer,2026-11-20\r\n'
+    );
+
+    const [filtros, opcoes, ctx] = db.exportarTarefas.mock.calls[0];
+    expect(filtros).toEqual({ status: 'a_fazer', responsavel: 'alex' });
+    expect(opcoes).toEqual({ sort: 'prazo', order: 'desc' });
+    expect(ctx.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((linha) => linha.operation === 'export' && linha.status === 'success')).toBe(true);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.exportarTarefas.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app)
+      .get('/api/web/records/export')
+      .set('Authorization', `Bearer ${TOKEN_CSV}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((linha) => linha.operation === 'export' && linha.level === 'ERROR')).toBe(true);
+  });
+});
+
