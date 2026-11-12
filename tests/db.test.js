@@ -363,3 +363,58 @@ describe('obterMetricasDashboardCli (issue #12)', () => {
     expect(linha).toMatchObject({ layer: 'db', client: 'cli', operation: 'cli_dashboard_metrics', request_id: 'req-cli-dash' });
   });
 });
+describe('buscarTarefas (issue #4)', () => {
+  test('sem filtros não usa WHERE e pagina normalmente', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+
+    const resultado = await db.buscarTarefas({}, { page: 1, pageSize: 5 }, CTX);
+
+    expect(resultado).toEqual({ itens: [{ id: 1 }], total: 1 });
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).not.toContain('WHERE');
+    expect(sql).toContain('ORDER BY id ASC');
+    expect(params).toEqual([5, 0]);
+    expect(mockQuery.mock.calls[1]).toEqual(['SELECT COUNT(*)::int AS total FROM tarefas ', []]);
+  });
+
+  test('combina os três filtros com parâmetros e busca parcial no responsável', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.buscarTarefas(
+      { status: 'feito', prioridade: 'alta', responsavel: 'ana' },
+      { page: 2, pageSize: 5, sort: 'prioridade', order: 'desc' },
+      CTX
+    );
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(sql).toContain('LIMIT $4 OFFSET $5');
+    expect(sql).toContain('CASE prioridade');
+    expect(sql).toContain('DESC');
+    expect(params).toEqual(['feito', 'alta', '%ana%', 5, 5]);
+
+    const [sqlTotal, paramsTotal] = mockQuery.mock.calls[1];
+    expect(sqlTotal).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(paramsTotal).toEqual(['feito', 'alta', '%ana%']);
+  });
+
+  test('ignora ordenação não permitida e registra logs com o mesmo request_id', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.buscarTarefas({ responsavel: 'bob' }, { page: 1, pageSize: 5, sort: 'x; DROP TABLE tarefas' }, CTX);
+
+    expect(mockQuery.mock.calls[0][0]).toContain('ORDER BY id ASC');
+    const operacoes = linhasDeLog().map((linha) => linha.operation);
+    expect(operacoes).toEqual(['search_tasks', 'count_search_tasks']);
+    linhasDeLog().forEach((linha) => {
+      expect(linha.request_id).toBe('req-teste-db');
+    });
+  });
+});
+

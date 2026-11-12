@@ -10,6 +10,7 @@ jest.mock('../db', () => ({
   obterMetricasDashboard: jest.fn(),
   obterMetricasDashboardCli: jest.fn(),
   listarTarefas: jest.fn(),
+  buscarTarefas: jest.fn(),
   excluirTarefa: jest.fn()
 }));
 
@@ -22,7 +23,7 @@ const request = require('supertest');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { app, start, clienteDaRota, autenticar, validarTarefa, lerId, inteiroPositivo } = require('../api');
+const { app, start, clienteDaRota, autenticar, validarTarefa, validarFiltrosBusca, lerId, inteiroPositivo } = require('../api');
 
 let hashSenha;
 
@@ -820,3 +821,93 @@ describe('DELETE /api/web/records/:id', () => {
     expect(resposta.status).toBe(500);
   });
 });
+
+describe('validarFiltrosBusca (issue #4)', () => {
+  test('ignora filtros ausentes ou vazios', () => {
+    expect(validarFiltrosBusca({})).toEqual({ filtros: {}, erros: {} });
+    expect(validarFiltrosBusca({ status: '  ', prioridade: '', responsavel: ' ' })).toEqual({ filtros: {}, erros: {} });
+  });
+
+  test('aceita os três filtros válidos, com trim', () => {
+    const resultado = validarFiltrosBusca({ status: 'fazendo', prioridade: ' alta ', responsavel: ' Ana ' });
+
+    expect(resultado.erros).toEqual({});
+    expect(resultado.filtros).toEqual({ status: 'fazendo', prioridade: 'alta', responsavel: 'Ana' });
+  });
+
+  test('aponta status, prioridade e responsável inválidos', () => {
+    const resultado = validarFiltrosBusca({ status: 'pronto', prioridade: 'urgente', responsavel: 'x'.repeat(81) });
+
+    expect(Object.keys(resultado.erros)).toEqual(['status', 'prioridade', 'responsavel']);
+    expect(resultado.filtros).toEqual({});
+  });
+});
+
+describe('GET /api/web/records/search (issue #4)', () => {
+  const TOKEN_BUSCA = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).get('/api/web/records/search?status=feito');
+
+    expect(resposta.status).toBe(401);
+    expect(db.buscarTarefas).not.toHaveBeenCalled();
+  });
+
+  test('400 com filtro inválido, sem consultar o banco', async () => {
+    const resposta = await request(app)
+      .get('/api/web/records/search?prioridade=urgente')
+      .set('Authorization', `Bearer ${TOKEN_BUSCA}`);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros.prioridade).toBeDefined();
+    expect(db.buscarTarefas).not.toHaveBeenCalled();
+    expect(logsDaApi().some((linha) => linha.operation === 'search' && linha.level === 'WARN')).toBe(true);
+  });
+
+  test('combina os filtros, repassa paginação e o mesmo request_id ao banco', async () => {
+    db.buscarTarefas.mockResolvedValue({ itens: [{ id: 2, titulo: 'Tarefa 2' }], total: 6 });
+
+    const resposta = await request(app)
+      .get('/api/web/records/search?status=a_fazer&prioridade=alta&responsavel=ana&page=2&sort=prazo&order=desc')
+      .set('Authorization', `Bearer ${TOKEN_BUSCA}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      itens: [{ id: 2, titulo: 'Tarefa 2' }],
+      total: 6,
+      page: 2,
+      page_size: 5,
+      total_pages: 2,
+      filtros: { status: 'a_fazer', prioridade: 'alta', responsavel: 'ana' }
+    });
+
+    const [filtros, opcoes, ctx] = db.buscarTarefas.mock.calls[0];
+    expect(filtros).toEqual({ status: 'a_fazer', prioridade: 'alta', responsavel: 'ana' });
+    expect(opcoes).toEqual({ page: 2, pageSize: 5, sort: 'prazo', order: 'desc' });
+    expect(ctx.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((linha) => linha.operation === 'search' && linha.status === 'success')).toBe(true);
+  });
+
+  test('sem resultados devolve total_pages 1', async () => {
+    db.buscarTarefas.mockResolvedValue({ itens: [], total: 0 });
+
+    const resposta = await request(app)
+      .get('/api/web/records/search?responsavel=ninguem')
+      .set('Authorization', `Bearer ${TOKEN_BUSCA}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.total_pages).toBe(1);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.buscarTarefas.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app)
+      .get('/api/web/records/search?status=feito')
+      .set('Authorization', `Bearer ${TOKEN_BUSCA}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((linha) => linha.operation === 'search' && linha.level === 'ERROR')).toBe(true);
+  });
+});
+
