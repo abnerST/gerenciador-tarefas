@@ -182,6 +182,40 @@ async function obterMetricasDashboard(ctx) {
 }
 
 
+// Indicadores da CLI (issue #12): consulta própria, com a mesma regra do dashboard Web.
+async function obterMetricasDashboardCli(ctx) {
+  const sql = `
+    SELECT
+      SUM(CASE WHEN status = 'a_fazer' THEN 1 ELSE 0 END)::int AS a_fazer,
+      SUM(CASE WHEN status = 'fazendo' THEN 1 ELSE 0 END)::int AS fazendo,
+      SUM(CASE WHEN status = 'feito' THEN 1 ELSE 0 END)::int AS feito,
+      SUM(CASE WHEN prioridade = 'baixa' THEN 1 ELSE 0 END)::int AS baixa,
+      SUM(CASE WHEN prioridade = 'media' THEN 1 ELSE 0 END)::int AS media,
+      SUM(CASE WHEN prioridade = 'alta' THEN 1 ELSE 0 END)::int AS alta,
+      SUM(CASE WHEN prazo IS NOT NULL AND prazo < CURRENT_DATE AND status <> 'feito' THEN 1 ELSE 0 END)::int AS atrasadas,
+      SUM(CASE WHEN prazo IS NOT NULL AND (prazo >= CURRENT_DATE OR status = 'feito') THEN 1 ELSE 0 END)::int AS no_prazo
+    FROM tarefas
+  `;
+  const resultado = await executar(ctx, 'cli_dashboard_metrics', 'Indicadores da CLI consultados', sql, []);
+  const linha = resultado.rows[0];
+  return {
+    status: {
+      a_fazer: Number(linha.a_fazer),
+      fazendo: Number(linha.fazendo),
+      feito: Number(linha.feito)
+    },
+    prioridade: {
+      baixa: Number(linha.baixa),
+      media: Number(linha.media),
+      alta: Number(linha.alta)
+    },
+    prazos: {
+      atrasadas: Number(linha.atrasadas),
+      no_prazo: Number(linha.no_prazo)
+    }
+  };
+}
+
 // Expressões de ordenação permitidas; qualquer outro valor cai no padrão (id).
 const ORDENACOES = {
   id: 'id',
@@ -238,6 +272,7 @@ module.exports = {
   inserirTarefaCli,
   editarTarefaCli,
   obterMetricasDashboard,
+  obterMetricasDashboardCli,
   listarTarefas,
   excluirTarefa
 };
