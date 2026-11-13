@@ -374,6 +374,51 @@ async function excluirTarefaCli(id, ctx) {
   return resultado.rowCount > 0;
 }
 
+async function exportarTarefasCli(filtros, ordenacao, ctx) {
+  const condicoes = [];
+  const params = [];
+
+  if (filtros && filtros.status) {
+    params.push(filtros.status);
+    condicoes.push(`status = $${params.length}`);
+  }
+
+  if (filtros && filtros.prioridade) {
+    params.push(filtros.prioridade);
+    condicoes.push(`prioridade = $${params.length}`);
+  }
+
+  if (filtros && filtros.responsavel) {
+    params.push(`%${filtros.responsavel}%`);
+    condicoes.push(`responsavel ILIKE $${params.length}`);
+  }
+
+  let where = '';
+  if (condicoes.length > 0) {
+    where = `WHERE ${condicoes.join(' AND ')}`;
+  }
+
+  let coluna = ORDENACOES.id;
+  if (ordenacao && Object.hasOwn(ORDENACOES, ordenacao.sort)) {
+    coluna = ORDENACOES[ordenacao.sort];
+  }
+
+  let direcao = 'ASC';
+  if (ordenacao && ordenacao.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ${where}
+    ORDER BY ${coluna} ${direcao}, id ASC
+  `;
+
+  const resultado = await executar(ctx, 'cli_export_tasks', 'Tarefas exportadas pela CLI', sql, params);
+  return resultado.rows;
+}
+
 module.exports = {
   pool,
   log,
@@ -392,5 +437,6 @@ module.exports = {
   exportarTarefas,
   excluirTarefa,
   listarTarefasCli,
-  excluirTarefaCli
+  excluirTarefaCli,
+  exportarTarefasCli
 };
