@@ -533,6 +533,43 @@ function validarOrdenacaoCli(query) {
   return erros;
 }
 
+// Busca avançada pela CLI (issue #10): mesmos filtros e validações da busca Web, com endpoint e consulta próprios.
+app.get('/api/cli/records/search', async (req, res) => {
+  const ctx = req.ctx;
+  const { filtros, erros } = validarFiltrosBusca(req.query);
+  Object.assign(erros, validarOrdenacaoCli(req.query));
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'search', 'error', 'Filtros de busca inválidos pela CLI', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  const opcoes = {
+    page: inteiroPositivo(req.query.page, 1, Number.MAX_SAFE_INTEGER),
+    pageSize: inteiroPositivo(req.query.page_size, 5, 100),
+    sort: req.query.sort,
+    order: req.query.order
+  };
+
+  try {
+    const resultado = await db.buscarTarefasCli(filtros, opcoes, ctx);
+    const totalPaginas = Math.max(1, Math.ceil(resultado.total / opcoes.pageSize));
+
+    logApi(ctx, 'search', 'success', 'Busca de tarefas realizada pela CLI');
+    return res.status(200).json({
+      itens: resultado.itens,
+      total: resultado.total,
+      page: opcoes.page,
+      page_size: opcoes.pageSize,
+      total_pages: totalPaginas,
+      filtros
+    });
+  } catch (erro) {
+    logApi(ctx, 'search', 'error', 'Erro interno ao buscar tarefas pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 app.get('/api/cli/records', async (req, res) => {
   const ctx = req.ctx;
   const erros = validarOrdenacaoCli(req.query);
