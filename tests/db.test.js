@@ -499,3 +499,66 @@ describe('exportarTarefas (issue #5)', () => {
   });
 });
 
+describe('exportarTarefasCli (issue #11)', () => {
+  const CTX_CLI = { request_id: 'req-cli-export', client: 'cli' };
+
+  test('sem filtros devolve todas as linhas, sem LIMIT e com log cli_export_tasks', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: 1 }, { id: 2 }] });
+
+    const linhas = await db.exportarTarefasCli({}, {}, CTX_CLI);
+
+    expect(linhas).toEqual([{ id: 1 }, { id: 2 }]);
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).not.toContain('WHERE');
+    expect(sql).not.toContain('LIMIT');
+    expect(sql).toContain('ORDER BY id ASC');
+    expect(params).toEqual([]);
+    expect(linhasDeLog()[0]).toMatchObject({
+      layer: 'db',
+      client: 'cli',
+      operation: 'cli_export_tasks',
+      request_id: 'req-cli-export'
+    });
+  });
+
+  test('filtra por status, prioridade e responsavel com ordenação pedida desc', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    await db.exportarTarefasCli(
+      { status: 'a_fazer', prioridade: 'alta', responsavel: 'italo' },
+      { sort: 'prazo', order: 'desc' },
+      CTX_CLI
+    );
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(sql).toContain('ORDER BY prazo DESC, id ASC');
+    expect(params).toEqual(['a_fazer', 'alta', '%italo%']);
+  });
+
+  test('filtra com campos individuais e funciona sem parâmetros de filtros ou ordenação', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    await db.exportarTarefasCli({ status: 'fazendo' }, null, CTX_CLI);
+    expect(mockQuery.mock.calls[0][0]).toContain('WHERE status = $1');
+    expect(mockQuery.mock.calls[0][1]).toEqual(['fazendo']);
+
+    mockQuery.mockClear();
+    await db.exportarTarefasCli({ prioridade: 'media' }, { sort: 'titulo', order: 'asc' }, CTX_CLI);
+    expect(mockQuery.mock.calls[0][0]).toContain('WHERE prioridade = $1');
+    expect(mockQuery.mock.calls[0][1]).toEqual(['media']);
+
+    mockQuery.mockClear();
+    await db.exportarTarefasCli({ responsavel: 'joao' }, { sort: 'coluna_invalida' }, CTX_CLI);
+    expect(mockQuery.mock.calls[0][0]).toContain('WHERE responsavel ILIKE $1');
+    expect(mockQuery.mock.calls[0][0]).toContain('ORDER BY id ASC');
+    expect(mockQuery.mock.calls[0][1]).toEqual(['%joao%']);
+
+    mockQuery.mockClear();
+    await db.exportarTarefasCli(null, null, CTX_CLI);
+    expect(mockQuery.mock.calls[0][0]).not.toContain('WHERE');
+    expect(mockQuery.mock.calls[0][1]).toEqual([]);
+  });
+});
+
+

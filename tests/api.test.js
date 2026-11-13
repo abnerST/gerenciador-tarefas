@@ -14,7 +14,8 @@ jest.mock('../db', () => ({
   exportarTarefas: jest.fn(),
   excluirTarefa: jest.fn(),
   listarTarefasCli: jest.fn(),
-  excluirTarefaCli: jest.fn()
+  excluirTarefaCli: jest.fn(),
+  exportarTarefasCli: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -1114,4 +1115,64 @@ describe('GET /api/web/records/export (issue #5)', () => {
     expect(logsDaApi().some((linha) => linha.operation === 'export' && linha.level === 'ERROR')).toBe(true);
   });
 });
+
+describe('GET /api/cli/records/export (issue #11)', () => {
+  const TOKEN_CLI = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
+
+  test('401 sem token', async () => {
+    const resposta = await request(app).get('/api/cli/records/export');
+
+    expect(resposta.status).toBe(401);
+    expect(db.exportarTarefasCli).not.toHaveBeenCalled();
+  });
+
+  test('400 com filtro inválido, sem consultar o banco', async () => {
+    const resposta = await request(app)
+      .get('/api/cli/records/export?status=pronto')
+      .set('Authorization', `Bearer ${TOKEN_CLI}`);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erros.status).toBeDefined();
+    expect(db.exportarTarefasCli).not.toHaveBeenCalled();
+    expect(logsDaApi().some((linha) => linha.layer === 'api' && linha.client === 'cli' && linha.operation === 'export' && linha.level === 'WARN')).toBe(true);
+  });
+
+  test('devolve o CSV com todas as tarefas filtradas, client cli e mesmo request_id', async () => {
+    db.exportarTarefasCli.mockResolvedValue([
+      { id: 1, titulo: 'Tarefa CLI', responsavel: 'Italo', prioridade: 'alta', status: 'a_fazer', prazo: '2026-11-20' }
+    ]);
+
+    const resposta = await request(app)
+      .get('/api/cli/records/export?status=a_fazer&prioridade=alta&responsavel=italo&sort=prazo&order=desc')
+      .set('Authorization', `Bearer ${TOKEN_CLI}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.headers['content-type']).toContain('text/csv');
+    expect(resposta.headers['content-disposition']).toContain('tarefas.csv');
+    expect(resposta.headers['x-total-count']).toBe('1');
+    expect(resposta.text).toBe(
+      '\uFEFFid,titulo,responsavel,prioridade,status,prazo\r\n1,Tarefa CLI,Italo,alta,a_fazer,2026-11-20\r\n'
+    );
+
+    const [filtros, opcoes, ctx] = db.exportarTarefasCli.mock.calls[0];
+    expect(filtros).toEqual({ status: 'a_fazer', prioridade: 'alta', responsavel: 'italo' });
+    expect(opcoes).toEqual({ sort: 'prazo', order: 'desc' });
+    expect(ctx.client).toBe('cli');
+    expect(ctx.request_id).toBe(resposta.headers['x-request-id']);
+    expect(logsDaApi().some((linha) => linha.layer === 'api' && linha.client === 'cli' && linha.operation === 'export' && linha.status === 'success')).toBe(true);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.exportarTarefasCli.mockRejectedValue(new Error('banco indisponível'));
+
+    const resposta = await request(app)
+      .get('/api/cli/records/export')
+      .set('Authorization', `Bearer ${TOKEN_CLI}`);
+
+    expect(resposta.status).toBe(500);
+    expect(resposta.body).toEqual({ erro: 'Erro interno' });
+    expect(logsDaApi().some((linha) => linha.layer === 'api' && linha.client === 'cli' && linha.operation === 'export' && linha.level === 'ERROR')).toBe(true);
+  });
+});
+
 

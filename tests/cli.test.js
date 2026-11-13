@@ -1,4 +1,4 @@
-const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores, montarConsultaListagem, formatarListagem } = require('../cli');
+const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao } = require('../cli');
 
 function respostaFalsa(status, corpo) {
   let texto = '';
@@ -433,3 +433,85 @@ describe('listagem e exclusão pela CLI (issue #9)', () => {
     expect(AJUDA).toContain('excluir --id <n>');
   });
 });
+
+describe('comando exportar (issue #11)', () => {
+  const CSV_EXEMPLO = 'id,titulo,responsavel,prioridade,status,prazo\r\n1,Tarefa 1,Italo,alta,a_fazer,2026-11-20\r\n';
+
+  test('montarConsultaExportacao gera a query string com os filtros informados', () => {
+    expect(montarConsultaExportacao({ status: 'a_fazer', prioridade: 'alta', responsavel: 'italo', extra: 'ignorar' }))
+      .toBe('?status=a_fazer&prioridade=alta&responsavel=italo');
+    expect(montarConsultaExportacao({}))
+      .toBe('');
+  });
+
+  test('erro sem token: encerra com 1 e exibe mensagem em stderr', async () => {
+    const saida = saidaFalsa();
+    expect(await main(['exportar'], { env: {}, saida })).toBe(1);
+    expect(saida.erro).toHaveBeenCalledWith('Token não informado. Use --token <token> ou defina TAREFAS_TOKEN.');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('sucesso com --token e filtros: faz requisição GET e imprime CSV', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, CSV_EXEMPLO));
+    const saida = saidaFalsa();
+
+    const codigo = await main(
+      ['exportar', '--status', 'a_fazer', '--prioridade', 'alta', '--responsavel', 'italo', '--token', 'tk-valido'],
+      { env: ENV, saida }
+    );
+
+    expect(codigo).toBe(0);
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records/export?status=a_fazer&prioridade=alta&responsavel=italo');
+    expect(opcoes.method).toBe('GET');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk-valido');
+    expect(saida.info).toHaveBeenCalledWith(CSV_EXEMPLO);
+  });
+
+  test('sucesso usando TAREFAS_TOKEN do ambiente', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, CSV_EXEMPLO));
+    const saida = saidaFalsa();
+
+    const codigo = await main(['exportar'], { env: { ...ENV, TAREFAS_TOKEN: 'tk-env' }, saida });
+
+    expect(codigo).toBe(0);
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records/export');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk-env');
+    expect(saida.info).toHaveBeenCalledWith(CSV_EXEMPLO);
+  });
+
+  test('sucesso quando a API devolve corpo vazio', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, ''));
+    const saida = saidaFalsa();
+
+    const codigo = await main(['exportar', '--token', 'tk'], { env: ENV, saida });
+
+    expect(codigo).toBe(0);
+    expect(saida.info).toHaveBeenCalledWith('');
+  });
+
+  test('trata erro 401 da API', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(401, { erro: 'Token inválido' }));
+    const saida = saidaFalsa();
+
+    expect(await main(['exportar', '--token', 'invalido'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('HTTP 401');
+  });
+
+  test('trata erro 400 da API com filtros inválidos', async () => {
+    global.fetch.mockResolvedValue(
+      respostaFalsa(400, { erros: { status: 'Status deve ser a_fazer, fazendo ou feito' } })
+    );
+    const saida = saidaFalsa();
+
+    expect(await main(['exportar', '--status', 'invalido', '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('--status: Status deve ser a_fazer, fazendo ou feito');
+  });
+
+  test('a ajuda lista o comando exportar e seus filtros', () => {
+    expect(AJUDA).toContain('exportar [--status <s>] [--prioridade <p>] [--responsavel <r>]');
+    expect(AJUDA).toContain('Filtros da exportação:');
+  });
+});
+
