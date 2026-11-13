@@ -419,6 +419,36 @@ async function exportarTarefasCli(filtros, ordenacao, ctx) {
   return resultado.rows;
 }
 
+// Busca avançada pela CLI (issue #10): consulta própria da CLI, com os mesmos filtros e regras da busca Web (#4).
+async function buscarTarefasCli(filtros, opcoes, ctx) {
+  let ordenacao = ORDENACOES.id;
+  if (Object.hasOwn(ORDENACOES, opcoes.sort)) {
+    ordenacao = ORDENACOES[opcoes.sort];
+  }
+
+  let direcao = 'ASC';
+  if (opcoes.order === 'desc') {
+    direcao = 'DESC';
+  }
+
+  const { where, params } = montarFiltrosBusca(filtros);
+  const deslocamento = (opcoes.page - 1) * opcoes.pageSize;
+  const sql = `
+    SELECT id, titulo, responsavel, prioridade, status, TO_CHAR(prazo, 'YYYY-MM-DD') AS prazo
+    FROM tarefas
+    ${where}
+    ORDER BY ${ordenacao} ${direcao}, id ASC
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+  `;
+  const pagina = await executar(ctx, 'cli_search_tasks', 'Busca de tarefas executada pela CLI', sql, params.concat([opcoes.pageSize, deslocamento]));
+  const contagem = await executar(ctx, 'cli_count_search_tasks', 'Total da busca contado pela CLI', `SELECT COUNT(*)::int AS total FROM tarefas ${where}`, params);
+
+  return {
+    itens: pagina.rows,
+    total: contagem.rows[0].total
+  };
+}
+
 module.exports = {
   pool,
   log,
@@ -438,5 +468,6 @@ module.exports = {
   excluirTarefa,
   listarTarefasCli,
   excluirTarefaCli,
-  exportarTarefasCli
+  exportarTarefasCli,
+  buscarTarefasCli
 };
