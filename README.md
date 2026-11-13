@@ -770,6 +770,74 @@ Invoke-WebRequest -Uri "http://localhost:3000/api/web/records/export?status=a_fa
 
 Cada exportação gera, com o mesmo `request_id`: `auth` (api), `export_tasks` (db) e `export` (api, com a quantidade de tarefas exportadas). Filtro inválido gera `export` com `level` `WARN` e `status` `error`, sem consultar o banco.
 
+## Busca avançada pela CLI (issue #10)
+
+O comando `buscar` aplica os **mesmos 3 filtros combináveis da busca Web** (#4): `--status`, `--prioridade` e `--responsavel` (busca parcial, sem diferenciar maiúsculas). Também aceita a paginação e a ordenação da listagem (`--page`, `--page-size`, `--sort`, `--order`). O comando usa um endpoint próprio da CLI, com consulta própria no `db.js` (`buscarTarefasCli`), e exige token. Com os mesmos parâmetros, o resultado é **o mesmo da busca Web**.
+
+Com o token na variável `TAREFAS_TOKEN` (veja a seção da CLI acima):
+
+```bash
+# Tarefas feitas
+docker compose run --rm cli buscar --status feito
+
+# Filtros combinados: feitas, de prioridade alta, com "ab" no nome do responsável
+docker compose run --rm cli buscar --status feito --prioridade alta --responsavel ab
+
+# Com paginação e ordenação: página 2, 3 por página, por responsável de Z a A
+docker compose run --rm cli buscar --status feito --page 2 --page-size 3 --sort responsavel --order desc
+```
+
+Os comandos são iguais no Bash e no PowerShell. Sem filtros, o `buscar` traz todas as tarefas.
+
+Exemplo de saída:
+
+```text
+Filtros: status=feito, prioridade=alta, responsavel=ab
+
+ID | Título | Responsável | Prioridade | Status | Prazo
+#4 | Tarefa 4 | Abner | alta | feito | sem prazo
+
+Página 1 de 1 (1 tarefas no total, 5 por página)
+```
+
+| Opção | Regra |
+|---|---|
+| `--status` | `a_fazer`, `fazendo` ou `feito` |
+| `--prioridade` | `baixa`, `media` ou `alta` |
+| `--responsavel` | Parte do nome, até 80 caracteres |
+| `--page`, `--page-size`, `--sort`, `--order` | Iguais aos do comando `listar` (issue #9) |
+
+Filtro ou ordenação inválidos são recusados pela API com a mensagem do campo, igual à Web:
+
+```text
+Dados inválidos (HTTP 400):
+  --prioridade: Prioridade deve ser baixa, media ou alta
+```
+
+### Endpoint da issue #10
+
+| Método | Rota | Autenticação | Respostas |
+|---|---|---|---|
+| GET | `/api/cli/records/search?status=&prioridade=&responsavel=&page=&page_size=&sort=&order=` | Bearer token | 200 página de resultados, 400 filtro ou ordenação inválidos, 401 sem token, 500 erro interno |
+
+A resposta traz `itens`, `total`, `page`, `page_size`, `total_pages` e `filtros` (os filtros aplicados), no mesmo formato da busca Web.
+
+### Logs gerados
+
+Cada busca gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no banco:
+
+| Camada | Operação | Descrição |
+|---|---|---|
+| `api` | `auth` | Validação do token JWT |
+| `db` | `cli_search_tasks` | Página de resultados com os filtros aplicados |
+| `db` | `cli_count_search_tasks` | Total de resultados da busca |
+| `api` | `search` | Resultado entregue à CLI |
+
+```json
+{"timestamp":"2026-11-13T16:11:13.400Z","level":"INFO","layer":"db","client":"cli","operation":"cli_search_tasks","status":"success","request_id":"d06686d8...","message":"Busca de tarefas executada pela CLI"}
+{"timestamp":"2026-11-13T16:11:13.400Z","level":"INFO","layer":"api","client":"cli","operation":"search","status":"success","request_id":"d06686d8...","message":"Busca de tarefas realizada pela CLI"}
+```
+
 ## Logs
 
 Cada operação registra uma linha JSON no stdout da API, com os campos `timestamp`, `level`, `layer`, `client`, `operation`, `status`, `request_id` e `message`. Quando a operação acessa o banco, o `db.js` registra outra linha com o **mesmo `request_id`**, o que permite correlacionar as duas camadas. Senhas e tokens nunca são registrados.
