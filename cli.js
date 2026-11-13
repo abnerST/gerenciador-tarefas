@@ -16,6 +16,8 @@ Comandos:
   listar [--page <n>] [--page-size <n>] [--sort <campo>] [--order asc|desc]
                                          Lista as tarefas com paginação e ordenação (protegido)
   excluir --id <n>                       Exclui uma tarefa (protegido)
+  buscar [--status <s>] [--prioridade <p>] [--responsavel <r>] [--page <n>] [--page-size <n>] [--sort <campo>] [--order asc|desc]
+                                         Busca tarefas com filtros combináveis, igual à busca da Web (protegido)
   exportar [--status <s>] [--prioridade <p>] [--responsavel <r>]
                                          Exporta tarefas em CSV (protegido)
 
@@ -32,7 +34,7 @@ Listagem:
   --sort          id, titulo, responsavel, prioridade, status ou prazo (padrão: id)
   --order         asc ou desc (padrão: asc)
 
-Filtros da exportação:
+Filtros da exportação: (os mesmos valem para o comando buscar)
   --status        a_fazer, fazendo ou feito
   --prioridade    baixa, media ou alta
   --responsavel   filtro parcial por nome (até 80 caracteres)
@@ -318,6 +320,43 @@ async function comandoExportar({ opcoes, env, saida, token }) {
   return 0;
 }
 
+// Monta a query string da busca: filtros e paginação/ordenação, só com as opções informadas.
+function montarConsultaBusca(opcoes) {
+  const parametros = new URLSearchParams();
+  const mapa = {
+    status: 'status',
+    prioridade: 'prioridade',
+    responsavel: 'responsavel',
+    page: 'page',
+    'page-size': 'page_size',
+    sort: 'sort',
+    order: 'order'
+  };
+  for (const [opcao, parametro] of Object.entries(mapa)) {
+    if (typeof opcoes[opcao] === 'string') {
+      parametros.set(parametro, opcoes[opcao]);
+    }
+  }
+  const texto = parametros.toString();
+  return texto ? `?${texto}` : '';
+}
+
+function descreverFiltros(filtros) {
+  const partes = Object.entries(filtros || {}).map(([nome, valor]) => `${nome}=${valor}`);
+  return partes.length > 0 ? partes.join(', ') : 'nenhum (todas as tarefas)';
+}
+
+async function comandoBuscar({ opcoes, env, saida, token }) {
+  const resultado = await chamarApi('GET', `/api/cli/records/search${montarConsultaBusca(opcoes)}`, { env, token });
+  if (resultado.status !== 200) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+  saida.info(`Filtros: ${descreverFiltros(resultado.dados.filtros)}\n`);
+  saida.info(formatarListagem(resultado.dados));
+  return 0;
+}
+
 const COMANDOS = {
   health: comandoHealth,
   token: comandoToken,
@@ -327,7 +366,8 @@ const COMANDOS = {
   dashboard: comandoIndicadores,
   listar: comandoListar,
   excluir: comandoExcluir,
-  exportar: comandoExportar
+  exportar: comandoExportar,
+  buscar: comandoBuscar
 };
 
 async function main(argv, { env = process.env, saida = { info: console.log, erro: console.error } } = {}) {
@@ -356,4 +396,4 @@ async function main(argv, { env = process.env, saida = { info: console.log, erro
 // Executa só quando chamado como programa (node cli.js ...), não quando importado pelos testes.
 if (require.main === module) main(process.argv.slice(2)).then((codigo) => { process.exitCode = codigo; });
 
-module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao, comandoExportar, AJUDA };
+module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao, comandoExportar, montarConsultaBusca, descreverFiltros, AJUDA };
