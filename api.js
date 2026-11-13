@@ -566,6 +566,29 @@ app.get('/api/cli/records', async (req, res) => {
   }
 });
 
+// Exportação CSV pela CLI (issue #11): todos os resultados filtrados, sem paginação.
+app.get('/api/cli/records/export', async (req, res) => {
+  const ctx = req.ctx;
+  const { filtros, erros } = validarFiltrosBusca(req.query);
+
+  if (Object.keys(erros).length > 0) {
+    logApi(ctx, 'export', 'error', 'Filtros inválidos na exportação pela CLI', 'WARN');
+    return res.status(400).json({ erros });
+  }
+
+  try {
+    const tarefas = await db.exportarTarefasCli(filtros, { sort: req.query.sort, order: req.query.order }, ctx);
+    logApi(ctx, 'export', 'success', `CSV exportado com ${tarefas.length} tarefa(s) pela CLI`);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="tarefas.csv"');
+    res.setHeader('X-Total-Count', String(tarefas.length));
+    return res.status(200).send('\uFEFF' + paraCsv(tarefas));
+  } catch (erro) {
+    logApi(ctx, 'export', 'error', 'Erro interno ao exportar tarefas pela CLI', 'ERROR');
+    return res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 app.delete('/api/cli/records/:id', async (req, res) => {
   const ctx = req.ctx;
   const id = lerId(req.params.id);
