@@ -561,4 +561,48 @@ describe('exportarTarefasCli (issue #11)', () => {
   });
 });
 
+describe('buscarTarefasCli (issue #10)', () => {
+  const CTX_CLI = { request_id: 'req-cli-busca', client: 'cli' };
 
+  test('combina os três filtros com parâmetros, pagina e registra logs próprios da CLI', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 2, titulo: 'Tarefa 2' }] })
+      .mockResolvedValueOnce({ rows: [{ total: 6 }] });
+
+    const resultado = await db.buscarTarefasCli(
+      { status: 'feito', prioridade: 'alta', responsavel: 'Abn' },
+      { page: 2, pageSize: 5 },
+      CTX_CLI
+    );
+
+    expect(resultado).toEqual({ itens: [{ id: 2, titulo: 'Tarefa 2' }], total: 6 });
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(sql).toContain('ORDER BY id ASC, id ASC');
+    expect(sql).toContain('LIMIT $4 OFFSET $5');
+    expect(params).toEqual(['feito', 'alta', '%Abn%', 5, 5]);
+
+    const [sqlTotal, paramsTotal] = mockQuery.mock.calls[1];
+    expect(sqlTotal).toContain('WHERE status = $1 AND prioridade = $2 AND responsavel ILIKE $3');
+    expect(paramsTotal).toEqual(['feito', 'alta', '%Abn%']);
+
+    const linhas = linhasDeLog();
+    expect(linhas.map((l) => l.operation)).toEqual(['cli_search_tasks', 'cli_count_search_tasks']);
+    linhas.forEach((l) => expect(l).toMatchObject({ layer: 'db', client: 'cli', request_id: 'req-cli-busca' }));
+  });
+
+  test('sem filtros consulta todas as tarefas, com a ordenação e a direção pedidas', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await db.buscarTarefasCli({}, { page: 1, pageSize: 10, sort: 'status', order: 'desc' }, CTX_CLI);
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).not.toContain('WHERE');
+    expect(sql).toContain("CASE status WHEN 'a_fazer' THEN 1 WHEN 'fazendo' THEN 2 ELSE 3 END DESC");
+    expect(sql).toContain('LIMIT $1 OFFSET $2');
+    expect(params).toEqual([10, 0]);
+  });
+});

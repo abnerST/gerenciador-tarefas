@@ -1,4 +1,4 @@
-const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao } = require('../cli');
+const { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, AJUDA, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao, montarConsultaBusca, descreverFiltros } = require('../cli');
 
 function respostaFalsa(status, corpo) {
   let texto = '';
@@ -515,3 +515,57 @@ describe('comando exportar (issue #11)', () => {
   });
 });
 
+describe('busca avançada pela CLI (issue #10)', () => {
+  const RESULTADO = {
+    itens: [{ id: 2, titulo: 'Tarefa 2', responsavel: 'Abner', prioridade: 'alta', status: 'feito', prazo: null }],
+    total: 1,
+    page: 1,
+    page_size: 5,
+    total_pages: 1,
+    filtros: { status: 'feito', responsavel: 'Abner' }
+  };
+
+  test('montarConsultaBusca envia só os filtros e opções informados', () => {
+    expect(montarConsultaBusca({})).toBe('');
+    expect(montarConsultaBusca({
+      status: 'feito', prioridade: 'alta', responsavel: 'Abner', page: '2', 'page-size': '10', sort: 'prazo', order: 'desc', token: 'x'
+    })).toBe('?status=feito&prioridade=alta&responsavel=Abner&page=2&page_size=10&sort=prazo&order=desc');
+  });
+
+  test('descreverFiltros mostra os filtros aplicados ou avisa que não há filtros', () => {
+    expect(descreverFiltros({ status: 'feito', responsavel: 'Abner' })).toBe('status=feito, responsavel=Abner');
+    expect(descreverFiltros({})).toBe('nenhum (todas as tarefas)');
+    expect(descreverFiltros(undefined)).toBe('nenhum (todas as tarefas)');
+  });
+
+  test('buscar envia GET /api/cli/records/search com filtros e Bearer, e mostra o resultado', async () => {
+    global.fetch.mockResolvedValue(respostaFalsa(200, RESULTADO));
+    const saida = saidaFalsa();
+
+    const codigo = await main(['buscar', '--status', 'feito', '--responsavel', 'Abner', '--token', 'tk'], { env: ENV, saida });
+
+    expect(codigo).toBe(0);
+    const [url, opcoes] = global.fetch.mock.calls[0];
+    expect(url).toBe('http://api-teste:3000/api/cli/records/search?status=feito&responsavel=Abner');
+    expect(opcoes.method).toBe('GET');
+    expect(opcoes.headers.Authorization).toBe('Bearer tk');
+    expect(saida.info.mock.calls[0][0]).toContain('Filtros: status=feito, responsavel=Abner');
+    expect(saida.info.mock.calls[1][0]).toContain('#2 | Tarefa 2 | Abner | alta | feito | sem prazo');
+    expect(saida.info.mock.calls[1][0]).toContain('Página 1 de 1 (1 tarefas no total, 5 por página)');
+  });
+
+  test('buscar mostra o erro da API (401 sem token, 400 filtro inválido)', async () => {
+    global.fetch.mockResolvedValueOnce(respostaFalsa(401, { erro: 'Token não informado' }));
+    const saida = saidaFalsa();
+    expect(await main(['buscar', '--status', 'feito'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[0][0]).toContain('HTTP 401');
+
+    global.fetch.mockResolvedValueOnce(respostaFalsa(400, { erros: { prioridade: 'Prioridade deve ser baixa, media ou alta' } }));
+    expect(await main(['buscar', '--prioridade', 'urgente', '--token', 'tk'], { env: ENV, saida })).toBe(1);
+    expect(saida.erro.mock.calls[1][0]).toContain('--prioridade: Prioridade deve ser baixa, media ou alta');
+  });
+
+  test('a ajuda lista o comando buscar', () => {
+    expect(AJUDA).toContain('buscar [--status <s>] [--prioridade <p>] [--responsavel <r>]');
+  });
+});

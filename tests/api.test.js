@@ -15,7 +15,8 @@ jest.mock('../db', () => ({
   excluirTarefa: jest.fn(),
   listarTarefasCli: jest.fn(),
   excluirTarefaCli: jest.fn(),
-  exportarTarefasCli: jest.fn()
+  exportarTarefasCli: jest.fn(),
+  buscarTarefasCli: jest.fn()
 }));
 
 process.env.JWT_SECRET = 'segredo-de-teste';
@@ -1175,4 +1176,73 @@ describe('GET /api/cli/records/export (issue #11)', () => {
   });
 });
 
+describe('GET /api/cli/records/search (issue #10)', () => {
+  const TOKEN = jwt.sign({ sub: 'admin' }, 'segredo-de-teste');
 
+  test('401 sem token, sem consultar o banco', async () => {
+    const resposta = await request(app).get('/api/cli/records/search?status=feito');
+
+    expect(resposta.status).toBe(401);
+    expect(db.buscarTarefasCli).not.toHaveBeenCalled();
+  });
+
+  test('200 com os três filtros combinados, consulta própria e o mesmo request_id', async () => {
+    db.buscarTarefasCli.mockResolvedValue({ itens: [{ id: 2, titulo: 'Tarefa 2' }], total: 6 });
+
+    const resposta = await request(app)
+      .get('/api/cli/records/search?status=feito&prioridade=alta&responsavel=%20Abner%20')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      itens: [{ id: 2, titulo: 'Tarefa 2' }],
+      total: 6,
+      page: 1,
+      page_size: 5,
+      total_pages: 2,
+      filtros: { status: 'feito', prioridade: 'alta', responsavel: 'Abner' }
+    });
+    expect(db.buscarTarefas).not.toHaveBeenCalled();
+
+    const [filtros, opcoes, ctx] = db.buscarTarefasCli.mock.calls[0];
+    expect(filtros).toEqual({ status: 'feito', prioridade: 'alta', responsavel: 'Abner' });
+    expect(opcoes).toEqual({ page: 1, pageSize: 5, sort: undefined, order: undefined });
+    expect(ctx).toEqual({ request_id: resposta.headers['x-request-id'], client: 'cli' });
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'search' && l.status === 'success')).toBe(true);
+  });
+
+  test('sem filtros busca todas as tarefas e repassa paginação e ordenação', async () => {
+    db.buscarTarefasCli.mockResolvedValue({ itens: [], total: 0 });
+
+    const resposta = await request(app)
+      .get('/api/cli/records/search?page=2&page_size=500&sort=prazo&order=desc')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.total_pages).toBe(1);
+    expect(resposta.body.filtros).toEqual({});
+    expect(db.buscarTarefasCli.mock.calls[0][1]).toEqual({ page: 2, pageSize: 100, sort: 'prazo', order: 'desc' });
+  });
+
+  test('400 com filtro ou ordenação inválidos, sem consultar o banco', async () => {
+    const resposta = await request(app)
+      .get('/api/cli/records/search?status=pronto&sort=senha')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(400);
+    expect(Object.keys(resposta.body.erros).sort()).toEqual(['sort', 'status']);
+    expect(db.buscarTarefasCli).not.toHaveBeenCalled();
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'search' && l.level === 'WARN')).toBe(true);
+  });
+
+  test('500 quando o banco falha', async () => {
+    db.buscarTarefasCli.mockRejectedValue(new Error('banco fora'));
+
+    const resposta = await request(app)
+      .get('/api/cli/records/search?status=feito')
+      .set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(resposta.status).toBe(500);
+    expect(logsDaApi().some((l) => l.client === 'cli' && l.operation === 'search' && l.level === 'ERROR')).toBe(true);
+  });
+});
