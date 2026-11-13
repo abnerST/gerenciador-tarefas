@@ -362,6 +362,82 @@ Cada comando gera linhas com `"client":"cli"` e o mesmo `request_id` na API e no
 {"timestamp":"2026-11-12T15:38:22.798Z","level":"INFO","layer":"api","client":"cli","operation":"delete","status":"success","request_id":"3980b32b...","message":"Tarefa excluída pela CLI"}
 ```
 
+## Exportação CSV pela CLI (issue #11)
+
+O comando `exportar` consulta o endpoint `/api/cli/records/export` e emite o CSV com **todos os resultados** que atendem aos filtros, sem limitação de página. Exige token de acesso.
+
+### Como executar e onde o arquivo CSV fica acessível
+
+Como a CLI executa em contêiner descartável (`docker compose run --rm`), o comando emite o CSV diretamente na saída padrão (`stdout`), de modo que o usuário na máquina host pode salvar o arquivo usando redirecionamento de fluxo do terminal.
+
+> **Dica**: Use a opção `-T` (ou `--no-TTY`) no Docker Compose para evitar a inclusão de caracteres de controle de terminal ou quebras de linha indesejadas no arquivo CSV.
+
+Com o token na variável de ambiente `TAREFAS_TOKEN` (ou passando `--token <token>`):
+
+```bash
+# 1. Exportar todas as tarefas e exibir no terminal
+docker compose run --rm cli exportar
+
+# 2. Exportar todas as tarefas e salvar em um arquivo CSV no host
+docker compose run --rm -T cli exportar > tarefas.csv
+
+# 3. Exportar com filtros combinados (status, prioridade e responsável)
+docker compose run --rm -T cli exportar --status a_fazer --prioridade alta --responsavel Italo > tarefas_filtradas.csv
+
+# 4. Passando o token diretamente via opção
+docker compose run --rm -T cli exportar --token <token> --status feito > concluidas.csv
+```
+
+No Windows PowerShell:
+
+```powershell
+docker compose run --rm -T cli exportar --status a_fazer | Out-File -Encoding utf8 tarefas.csv
+```
+
+### Exemplo de saída CSV
+
+```csv
+id,titulo,responsavel,prioridade,status,prazo
+1,Configurar Docker,Alexandre,alta,feito,2026-11-09
+3,Cadastro de tarefas,Italo,alta,fazendo,2026-11-10
+4,Estrutura da CLI,Abner,alta,fazendo,2026-11-10
+```
+
+- Formato: UTF-8 com BOM (`\uFEFF`), separador vírgula e quebra de linha `\r\n`.
+- Sem token (ou com token inválido), a CLI exibe mensagem de erro em `stderr` e encerra com código 1:
+  ```text
+  Token não informado. Use --token <token> ou defina TAREFAS_TOKEN.
+  ```
+
+### Endpoint da issue #11
+
+| Método | Rota | Autenticação | Respostas | Descrição |
+|---|---|---|---|---|
+| GET | `/api/cli/records/export?status=&prioridade=&responsavel=` | Bearer token | 200 CSV gerado, 400 filtros inválidos, 401 sem token, 500 erro interno | Retorna todas as tarefas filtradas em CSV |
+
+- Cabeçalhos de resposta:
+  - `Content-Type: text/csv; charset=utf-8`
+  - `Content-Disposition: attachment; filename="tarefas.csv"`
+  - `X-Total-Count`: quantidade total de tarefas exportadas
+
+### Logs gerados
+
+A exportação pela CLI emite logs correlacionados com `"client":"cli"` e o mesmo `request_id`:
+
+| Camada | Operação | Status | Descrição |
+|---|---|---|---|
+| `api` | `auth` | `success` | Validação do token JWT |
+| `db` | `cli_export_tasks` | `success` | Consulta SQL sem limite/offset com os filtros aplicados |
+| `api` | `export` | `success` | Entrega do CSV à CLI com a quantidade exportada |
+
+Exemplo de logs correlacionados:
+
+```json
+{"timestamp":"2026-11-13T12:00:00.000Z","level":"INFO","layer":"api","client":"cli","operation":"auth","status":"success","request_id":"c4d8...","message":"Token validado"}
+{"timestamp":"2026-11-13T12:00:00.010Z","level":"INFO","layer":"db","client":"cli","operation":"cli_export_tasks","status":"success","request_id":"c4d8...","message":"Tarefas exportadas pela CLI"}
+{"timestamp":"2026-11-13T12:00:00.015Z","level":"INFO","layer":"api","client":"cli","operation":"export","status":"success","request_id":"c4d8...","message":"CSV exportado com 3 tarefa(s) pela CLI"}
+```
+
 ## Dashboard na Web (issue #6)
 
 Apresenta indicadores visuais agregados das tarefas na interface Web, atualizados de forma reativa após o login e a cada cadastro ou edição de tarefas. Os gráficos são renderizados com CSS puro em barras horizontais proporcionais, sem bibliotecas externas.
