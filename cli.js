@@ -16,6 +16,8 @@ Comandos:
   listar [--page <n>] [--page-size <n>] [--sort <campo>] [--order asc|desc]
                                          Lista as tarefas com paginação e ordenação (protegido)
   excluir --id <n>                       Exclui uma tarefa (protegido)
+  exportar [--status <s>] [--prioridade <p>] [--responsavel <r>]
+                                         Exporta tarefas em CSV (protegido)
 
 Campos da tarefa (mesmas regras da Web):
   --titulo        obrigatório, até 120 caracteres
@@ -29,6 +31,11 @@ Listagem:
   --page-size     tarefas por página, de 1 a 100 (padrão: 5)
   --sort          id, titulo, responsavel, prioridade, status ou prazo (padrão: id)
   --order         asc ou desc (padrão: asc)
+
+Filtros da exportação:
+  --status        a_fazer, fazendo ou feito
+  --prioridade    baixa, media ou alta
+  --responsavel   filtro parcial por nome (até 80 caracteres)
 
 Autenticação:
   Os comandos protegidos enviam "Authorization: Bearer <token>".
@@ -282,6 +289,35 @@ async function comandoExcluir({ opcoes, env, saida, token }) {
   return 0;
 }
 
+// Monta a query string só com os filtros de exportação informados.
+function montarConsultaExportacao(opcoes) {
+  const parametros = new URLSearchParams();
+  const mapa = { status: 'status', prioridade: 'prioridade', responsavel: 'responsavel' };
+  for (const [opcao, parametro] of Object.entries(mapa)) {
+    if (typeof opcoes[opcao] === 'string') {
+      parametros.set(parametro, opcoes[opcao]);
+    }
+  }
+  const texto = parametros.toString();
+  return texto ? `?${texto}` : '';
+}
+
+async function comandoExportar({ opcoes, env, saida, token }) {
+  if (!token) {
+    saida.erro('Token não informado. Use --token <token> ou defina TAREFAS_TOKEN.');
+    return 1;
+  }
+
+  const resultado = await chamarApi('GET', `/api/cli/records/export${montarConsultaExportacao(opcoes)}`, { env, token });
+  if (resultado.status !== 200) {
+    saida.erro(mensagemDeErro(resultado));
+    return 1;
+  }
+
+  saida.info(resultado.dados.texto || '');
+  return 0;
+}
+
 const COMANDOS = {
   health: comandoHealth,
   token: comandoToken,
@@ -290,7 +326,8 @@ const COMANDOS = {
   indicadores: comandoIndicadores,
   dashboard: comandoIndicadores,
   listar: comandoListar,
-  excluir: comandoExcluir
+  excluir: comandoExcluir,
+  exportar: comandoExportar
 };
 
 async function main(argv, { env = process.env, saida = { info: console.log, erro: console.error } } = {}) {
@@ -319,4 +356,4 @@ async function main(argv, { env = process.env, saida = { info: console.log, erro
 // Executa só quando chamado como programa (node cli.js ...), não quando importado pelos testes.
 if (require.main === module) main(process.argv.slice(2)).then((codigo) => { process.exitCode = codigo; });
 
-module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, montarConsultaListagem, formatarListagem, AJUDA };
+module.exports = { main, lerArgumentos, obterToken, chamarApi, mensagemDeErro, montarTarefa, formatarTarefa, formatarIndicadores, montarConsultaListagem, formatarListagem, montarConsultaExportacao, comandoExportar, AJUDA };
